@@ -27,6 +27,9 @@ export async function POST(request: NextRequest) {
     // Busca ou cria usuário baseado no endereço da carteira
     let user = await prisma.user.findUnique({
       where: { walletAddress: address },
+      include: {
+        accounts: true,
+      },
     });
 
     if (!user) {
@@ -35,11 +38,14 @@ export async function POST(request: NextRequest) {
         data: {
           name: `Wallet ${address.slice(0, 8)}...${address.slice(-6)}`,
           walletAddress: address,
-          email: null, // Pode ser preenchido depois
+          email: null, // Não temos email, apenas wallet address
+        },
+        include: {
+          accounts: true,
         },
       });
 
-      // Cria uma Account no Better Auth para o provider "wallet"
+      // Cria uma Account no Better Auth para o provider "crossmark"
       await prisma.account.create({
         data: {
           userId: user.id,
@@ -48,14 +54,31 @@ export async function POST(request: NextRequest) {
           providerAccountId: address,
         },
       });
+    } else {
+      // Verifica se já tem Account do Crossmark, se não, cria
+      const hasCrossmarkAccount = user.accounts.some(
+        (acc) => acc.provider === 'crossmark' && acc.providerAccountId === address
+      );
+
+      if (!hasCrossmarkAccount) {
+        await prisma.account.create({
+          data: {
+            userId: user.id,
+            type: 'wallet',
+            provider: 'crossmark',
+            providerAccountId: address,
+          },
+        });
+      }
     }
 
-    // Cria uma sessão usando a API do Better Auth
+    // Cria sessão manualmente compatível com Better Auth
     const sessionToken = crypto.randomUUID();
     const expires = new Date();
     expires.setDate(expires.getDate() + 30); // 30 dias
 
-    const session = await prisma.session.create({
+    // Cria nova sessão
+    await prisma.session.create({
       data: {
         sessionToken,
         userId: user.id,
@@ -75,7 +98,6 @@ export async function POST(request: NextRequest) {
     });
 
     // Define o cookie de sessão do Better Auth
-    // O Better Auth usa o nome 'better-auth.session_token'
     response.cookies.set('better-auth.session_token', sessionToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',

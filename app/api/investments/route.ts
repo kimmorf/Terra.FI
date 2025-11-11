@@ -51,16 +51,40 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const body = await request.json();
+    const { projectId, amount, walletAddress, txHash, xrpAmount } = body;
+
+    // Autenticação: aceita sessão do Better Auth OU wallet address do Crossmark
+    let user = null;
+    
+    // Tenta obter sessão do Better Auth primeiro
     const session = await auth.api.getSession({
       headers: request.headers,
     });
 
-    if (!session) {
-      return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });
+    if (session?.user) {
+      user = session.user;
+    } else if (walletAddress) {
+      // Se não tem sessão, busca usuário pelo wallet address
+      user = await prisma.user.findUnique({
+        where: { walletAddress },
+      });
+
+      // Se não existe, cria o usuário
+      if (!user) {
+        user = await prisma.user.create({
+          data: {
+            name: `Wallet ${walletAddress.slice(0, 8)}...${walletAddress.slice(-6)}`,
+            walletAddress,
+            email: null,
+          },
+        });
+      }
     }
 
-    const body = await request.json();
-    const { projectId, amount } = body;
+    if (!user) {
+      return NextResponse.json({ error: 'Não autenticado. Conecte sua carteira.' }, { status: 401 });
+    }
 
     if (!projectId || !amount || amount <= 0) {
       return NextResponse.json(
@@ -99,10 +123,12 @@ export async function POST(request: NextRequest) {
     // Criar investimento
     const investment = await prisma.investment.create({
       data: {
-        userId: session.user.id,
+        userId: user.id,
         projectId,
         amount,
-        status: 'confirmed',
+        xrpAmount: xrpAmount || null,
+        txHash: txHash || null,
+        status: 'confirmed', // Confirmado porque o pagamento XRP já foi enviado
       },
     });
 

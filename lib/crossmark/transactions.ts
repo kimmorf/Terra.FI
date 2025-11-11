@@ -184,6 +184,56 @@ export function buildPaymentTransaction({
   return transaction;
 }
 
+// Interface para pagamento em XRP nativo
+export interface XRPPaymentParams {
+  sender: string;
+  destination: string;
+  amount: string; // Em drops (1 XRP = 1,000,000 drops) ou em XRP como string
+  memo?: string;
+}
+
+// Função para construir transação de pagamento em XRP nativo
+export function buildXRPPaymentTransaction({
+  sender,
+  destination,
+  amount,
+  memo,
+}: XRPPaymentParams) {
+  // Converte XRP para drops se necessário (assume que amount já está em drops ou XRP como string)
+  // Se o valor contém ponto decimal, assume que é XRP e converte para drops
+  let amountInDrops = amount;
+  if (amount.includes('.')) {
+    const xrpAmount = parseFloat(amount);
+    amountInDrops = (xrpAmount * 1000000).toString();
+  }
+
+  const transaction: Record<string, unknown> = {
+    TransactionType: 'Payment',
+    Account: sender,
+    Destination: destination,
+    Amount: amountInDrops, // XRP nativo é enviado como string de drops
+  };
+
+  if (memo) {
+    transaction.Memos = [
+      {
+        Memo: {
+          MemoType: stringToHex('NOTE'),
+          MemoData: stringToHex(memo),
+        },
+      },
+    ];
+  }
+
+  return transaction;
+}
+
+// Função para enviar pagamento em XRP nativo
+export function sendXRPPayment(params: XRPPaymentParams) {
+  const transaction = buildXRPPaymentTransaction(params);
+  return signAndSubmitTransaction(transaction);
+}
+
 export function buildTrustSetTransaction({
   account,
   currency,

@@ -113,6 +113,9 @@ export default function Home() {
   const [issuanceError, setIssuanceError] = useState<string | null>(null);
   const [investmentProjects, setInvestmentProjects] = useState<any[]>([]);
   const [loadingInvestments, setLoadingInvestments] = useState(false);
+  const [adminInvestments, setAdminInvestments] = useState<any[]>([]);
+  const [loadingAdminInvestments, setLoadingAdminInvestments] = useState(false);
+  const [adminTab, setAdminTab] = useState<'projects' | 'investments'>('projects');
 
   const loadAccountData = useCallback(async () => {
     if (!account) {
@@ -201,11 +204,109 @@ export default function Home() {
     }
   }, []);
 
+  const fetchAdminInvestments = useCallback(async () => {
+    try {
+      setLoadingAdminInvestments(true);
+      const response = await fetch('/api/admin/investments');
+      if (response.ok) {
+        const data = await response.json();
+        setAdminInvestments(data);
+      } else {
+        console.error('Erro ao carregar investimentos:', await response.text());
+      }
+    } catch (error) {
+      console.error('Erro ao buscar investimentos do admin:', error);
+    } finally {
+      setLoadingAdminInvestments(false);
+    }
+  }, []);
+
+  const handleUpdateInvestmentStatus = useCallback(async (investmentId: string, status: string) => {
+    if (!isConnected || !account) {
+      alert('Você precisa conectar sua carteira para enviar tokens');
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/admin/investments', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ investmentId, status }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Erro ao atualizar investimento');
+      }
+
+      const data = await response.json();
+
+      // Se foi publicado e tem informações de distribuição de tokens, envia os tokens
+      if (status === 'published' && data.tokenDistribution && data.tokenDistribution.tokenAmount) {
+        try {
+          const { sendMPToken } = await import('@/lib/crossmark/transactions');
+          const { TOKEN_CONFIG } = await import('@/lib/tokens/presets');
+
+          const config = TOKEN_CONFIG[data.tokenDistribution.currency] || { decimals: 2 };
+          const tokenAmountInBaseUnits = (parseFloat(data.tokenDistribution.tokenAmount) * Math.pow(10, config.decimals)).toString();
+
+          // Busca o investimento para obter o endereço do investidor
+          const investmentResponse = await fetch(`/api/admin/investments`);
+          const investments = await investmentResponse.json();
+          const investment = investments.find((inv: any) => inv.id === investmentId);
+
+          if (investment?.user?.walletAddress) {
+            const tokenResponse = await sendMPToken({
+              sender: account.address,
+              destination: investment.user.walletAddress,
+              amount: tokenAmountInBaseUnits,
+              currency: data.tokenDistribution.currency,
+              issuer: account.address,
+              memo: `Investimento: ${investment.project?.name || 'Projeto'} - ${data.tokenDistribution.tokenAmount} tokens`,
+            });
+
+            const txHash = 
+              (tokenResponse as any)?.hash ??
+              (tokenResponse as any)?.result?.hash ??
+              (tokenResponse as any)?.result?.tx_json?.hash ??
+              (tokenResponse as any)?.tx_json?.hash ??
+              null;
+
+            if (txHash) {
+              alert(`Investimento publicado e ${data.tokenDistribution.tokenAmount} tokens enviados com sucesso! Hash: ${txHash.slice(0, 8)}...`);
+            } else {
+              alert(`Investimento publicado! Enviando ${data.tokenDistribution.tokenAmount} tokens...`);
+            }
+          } else {
+            alert('Investimento publicado, mas não foi possível enviar tokens (endereço do investidor não encontrado)');
+          }
+        } catch (tokenError: any) {
+          console.error('Erro ao enviar tokens:', tokenError);
+          alert(`Investimento publicado, mas erro ao enviar tokens: ${tokenError.message}`);
+        }
+      } else {
+        alert(`Investimento ${status === 'published' ? 'publicado' : 'negado'} com sucesso!`);
+      }
+
+      // Atualiza a lista de investimentos
+      await fetchAdminInvestments();
+      // Atualiza também os projetos para refletir o novo total arrecadado
+      await fetchAdminProjects();
+    } catch (error: any) {
+      alert(error.message || 'Erro ao atualizar investimento');
+    }
+  }, [isConnected, account, fetchAdminInvestments, fetchAdminProjects]);
+
   useEffect(() => {
     if (selectedRole === 'administrador') {
       fetchAdminProjects();
+      if (adminTab === 'investments') {
+        fetchAdminInvestments();
+      }
     }
-  }, [selectedRole, fetchAdminProjects]);
+  }, [selectedRole, adminTab, fetchAdminProjects, fetchAdminInvestments]);
 
   const fetchInvestmentProjects = useCallback(async () => {
     if (!session) {
@@ -288,31 +389,94 @@ export default function Home() {
   }, [investorTab]);
 
   const handleInvest = useCallback(async (projectId: string, amount: number) => {
-    if (!session) {
-      alert('Você precisa estar logado para investir');
+    if (!isConnected || !account) {
+      alert('Você precisa conectar sua carteira para investir');
       return;
     }
+
+    // Busca informações do projeto para obter wallet de destino
+    const project = availableTokens.find(p => p.id === projectId) || 
+                   investmentProjects.find(p => p.id === projectId);
+    
+    if (!project) {
+      alert('Projeto não encontrado');
+      return;
+    }
+
+    // Taxa de conversão R$ para XRP (pode ser configurável depois)
+    // Exemplo: 1 XRP = R$ 2,50 (ajuste conforme necessário)
+    const XRP_TO_BRL = 2.5;
+    const xrpAmount = amount / XRP_TO_BRL;
+
+    // Verifica saldo XRP
+    if (xrpBalance !== null && xrpBalance < xrpAmount) {
+      alert(`Saldo insuficiente. Você tem ${xrpBalance.toFixed(2)} XRP, mas precisa de ${xrpAmount.toFixed(2)} XRP.`);
+      return;
+    }
+
+    // Wallet de destino (pode ser do projeto ou uma wallet central)
+    // Por enquanto, usando uma wallet de teste - deve ser configurada no projeto
+    // TODO: Adicionar campo walletAddress no InvestmentProject
+    const destinationWallet = 'rN7n7otQDd6FczFgLdSqtcsAUxDkw6fzRH'; // Wallet de destino padrão
+
     try {
+      // 1. Envia XRP primeiro
+      const { sendXRPPayment } = await import('@/lib/crossmark/transactions');
+      
+      const paymentResponse = await sendXRPPayment({
+        sender: account.address,
+        destination: destinationWallet,
+        amount: xrpAmount.toString(), // Em XRP
+        memo: `Investimento: ${project.name} - R$ ${amount.toFixed(2)}`,
+      });
+
+      const txHash = 
+        (paymentResponse as any)?.hash ??
+        (paymentResponse as any)?.result?.hash ??
+        (paymentResponse as any)?.result?.tx_json?.hash ??
+        (paymentResponse as any)?.tx_json?.hash ??
+        (paymentResponse as any)?.response?.hash ??
+        (paymentResponse as any)?.response?.result?.hash ??
+        null;
+
+      if (!txHash) {
+        throw new Error('Não foi possível obter o hash da transação');
+      }
+
+      // 2. Após pagamento confirmado, registra no banco
       const response = await fetch('/api/investments', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ projectId, amount }),
+        credentials: 'include',
+        body: JSON.stringify({ 
+          projectId, 
+          amount,
+          walletAddress: account.address,
+          txHash, // Hash da transação XRP
+          xrpAmount, // Valor em XRP enviado
+        }),
       });
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.error || 'Erro ao investir');
+        throw new Error(error.error || 'Erro ao registrar investimento');
+      }
+
+      // Atualiza saldo XRP
+      if (xrpBalance !== null) {
+        setXrpBalance(xrpBalance - xrpAmount);
       }
 
       await fetchInvestmentProjects();
-      alert('Investimento realizado com sucesso!');
+      alert(`Investimento de ${xrpAmount.toFixed(2)} XRP realizado com sucesso! Hash: ${txHash.slice(0, 8)}...`);
     } catch (error: any) {
+      console.error('Erro ao investir:', error);
       alert(error.message || 'Erro ao realizar investimento');
       throw error;
     }
-  }, [session, fetchInvestmentProjects]);
+  }, [isConnected, account, xrpBalance, availableTokens, investmentProjects, fetchInvestmentProjects]);
 
   useEffect(() => {
     if (isConnected && account) {
@@ -742,51 +906,52 @@ export default function Home() {
                 </div>
               )}
 
-              {/* Abas do Investidor */}
-              <div className="mt-6">
-                <div className="flex gap-4 mb-6 border-b border-gray-200 dark:border-gray-700">
-                    <button
-                      onClick={() => setInvestorTab('available-tokens')}
-                      className={`px-4 py-2 font-semibold transition-all duration-300 border-b-2 ${
-                        investorTab === 'available-tokens'
-                          ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
-                          : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <TrendingUp className="w-5 h-5" />
-                        Investimentos
-                      </div>
-                    </button>
-                    <button
-                      onClick={() => setInvestorTab('my-tokens')}
-                      className={`px-4 py-2 font-semibold transition-all duration-300 border-b-2 ${
-                        investorTab === 'my-tokens'
-                          ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
-                          : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <Coins className="w-5 h-5" />
-                        Meus Tokens
-                      </div>
-                    </button>
-                    {session && (
+              {/* Abas do Investidor - só aparecem quando wallet está conectada */}
+              {isConnected && (
+                <div className="mt-6">
+                  <div className="flex gap-4 mb-6 border-b border-gray-200 dark:border-gray-700">
                       <button
-                        onClick={() => setInvestorTab('investments')}
+                        onClick={() => setInvestorTab('available-tokens')}
                         className={`px-4 py-2 font-semibold transition-all duration-300 border-b-2 ${
-                          investorTab === 'investments'
+                          investorTab === 'available-tokens'
                             ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
                             : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
                         }`}
                       >
                         <div className="flex items-center gap-2">
                           <TrendingUp className="w-5 h-5" />
-                          Meus Investimentos
+                          Investimentos
                         </div>
                       </button>
-                    )}
-                </div>
+                      <button
+                        onClick={() => setInvestorTab('my-tokens')}
+                        className={`px-4 py-2 font-semibold transition-all duration-300 border-b-2 ${
+                          investorTab === 'my-tokens'
+                            ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
+                            : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <Coins className="w-5 h-5" />
+                          Meus Tokens
+                        </div>
+                      </button>
+                      {session && (
+                        <button
+                          onClick={() => setInvestorTab('investments')}
+                          className={`px-4 py-2 font-semibold transition-all duration-300 border-b-2 ${
+                            investorTab === 'investments'
+                              ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
+                              : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <TrendingUp className="w-5 h-5" />
+                            Meus Investimentos
+                          </div>
+                        </button>
+                      )}
+                  </div>
 
                 {/* Conteúdo da aba Investimentos */}
                 {investorTab === 'investments' && (
@@ -904,87 +1069,25 @@ export default function Home() {
                       </div>
                     ) : availableTokens.length > 0 ? (
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {availableTokens.map((project, index) => {
-                          const Icon = typeIcons[project.currency as keyof typeof typeIcons] || TrendingUp;
-                          const colorClass = typeColors[project.currency as keyof typeof typeColors] || 'from-blue-400 to-blue-600';
-                          
-                          return (
-                            <motion.div
-                              key={project.id || `${project.currency}-${project.issuer}-${index}`}
-                              initial={{ opacity: 0, y: 20 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              transition={{ duration: 0.5, delay: index * 0.1 }}
-                              whileHover={{ scale: 1.02, y: -5 }}
-                              className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-6 border border-gray-200 dark:border-gray-700 hover:shadow-2xl transition-all duration-300"
-                            >
-                              <div className="flex items-start gap-4 mb-4">
-                                <div className={`p-3 bg-gradient-to-br ${colorClass} rounded-xl`}>
-                                  <Icon className="w-8 h-8 text-white" />
-                                </div>
-                                <div className="flex-1">
-                                  <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-1">
-                                    {project.name}
-                                  </h3>
-                                  <p className="text-sm text-gray-500 dark:text-gray-400">
-                                    {project.purpose}
-                                  </p>
-                                </div>
-                              </div>
-                              <div className="space-y-3 mb-6">
-                                <div>
-                                  <p className="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-1">
-                                    Propósito:
-                                  </p>
-                                  <p className="text-gray-700 dark:text-gray-200">
-                                    {project.purpose}
-                                  </p>
-                                </div>
-                                {project.example && (
-                                  <div>
-                                    <p className="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-1">
-                                      Exemplo:
-                                    </p>
-                                    <p className="text-gray-700 dark:text-gray-200">
-                                      {project.example}
-                                    </p>
-                                  </div>
-                                )}
-                                <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
-                                  <div className="flex justify-between text-sm mb-2">
-                                    <span className="text-gray-600 dark:text-gray-300">
-                                      Arrecadado: R$ {project.totalAmount?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                                    </span>
-                                    <span className="text-gray-600 dark:text-gray-300">
-                                      Meta: R$ {project.targetAmount?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                                    </span>
-                                  </div>
-                                  <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                                    <div
-                                      className="bg-gradient-to-r from-blue-500 to-purple-500 h-2 rounded-full"
-                                      style={{ width: `${Math.min((project.totalAmount / project.targetAmount) * 100, 100)}%` }}
-                                    />
-                                  </div>
-                                </div>
-                              </div>
-                              <motion.button
-                                whileHover={{ scale: 1.05 }}
-                                whileTap={{ scale: 0.95 }}
-                                onClick={() => handleInvest(project.id || '', project.minAmount || 0)}
-                                disabled={!session}
-                                className="w-full px-4 py-3 bg-green-500 hover:bg-green-600 dark:bg-green-600 dark:hover:bg-green-700 text-white rounded-xl font-semibold transition-all duration-300 flex items-center justify-center gap-2 shadow-md hover:shadow-lg disabled:opacity-60 disabled:cursor-not-allowed"
-                              >
-                                {!session ? (
-                                  'Fazer Login para Investir'
-                                ) : (
-                                  <>
-                                    Investir em {project.name}
-                                    <ArrowRight className="w-5 h-5" />
-                                  </>
-                                )}
-                              </motion.button>
-                            </motion.div>
-                          );
-                        })}
+                        {availableTokens.map((project) => (
+                          <InvestmentCard
+                            key={project.id || `${project.currency}-${project.issuer}`}
+                            project={{
+                              id: project.id || '',
+                              name: project.name,
+                              type: project.currency,
+                              description: project.purpose,
+                              purpose: project.purpose,
+                              example: project.example || '',
+                              minAmount: project.minAmount || 0,
+                              maxAmount: project.maxAmount || 0,
+                              targetAmount: project.targetAmount || 0,
+                              totalAmount: project.totalAmount || 0,
+                              status: 'published',
+                            }}
+                            onInvest={handleInvest}
+                          />
+                        ))}
                       </div>
                     ) : (
                       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-12 text-center border border-gray-200 dark:border-gray-700">
@@ -996,7 +1099,8 @@ export default function Home() {
                     )}
                   </div>
                 )}
-              </div>
+                </div>
+              )}
 
               {/* Animated Wallet Icon - só aparece quando não está logado nem conectado */}
               {!session && !isConnected && (
@@ -1162,6 +1266,30 @@ export default function Home() {
               </div>
             </motion.div>
 
+            {/* Tabs do Admin */}
+            <div className="flex gap-4 mb-6 border-b border-gray-200 dark:border-gray-700">
+              <button
+                onClick={() => setAdminTab('projects')}
+                className={`px-4 py-2 font-semibold transition-all duration-300 border-b-2 ${
+                  adminTab === 'projects'
+                    ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
+                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                }`}
+              >
+                Projetos
+              </button>
+              <button
+                onClick={() => setAdminTab('investments')}
+                className={`px-4 py-2 font-semibold transition-all duration-300 border-b-2 ${
+                  adminTab === 'investments'
+                    ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
+                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                }`}
+              >
+                Investimentos
+              </button>
+            </div>
+
             {(issuanceSuccess || issuanceError) && (
               <div className="mb-6">
                 {issuanceSuccess && (
@@ -1185,8 +1313,11 @@ export default function Home() {
               </div>
             )}
 
-            {/* MPT Cards Grid */}
-            {loadingProjects ? (
+            {/* Conteúdo da aba Projetos */}
+            {adminTab === 'projects' && (
+              <>
+                {/* MPT Cards Grid */}
+                {loadingProjects ? (
               <div className="text-center py-12">
                 <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
                 <p className="text-gray-600 dark:text-gray-300">Carregando projetos...</p>
@@ -1288,6 +1419,154 @@ export default function Home() {
                     </motion.div>
                   );
                 })}
+              </div>
+            )}
+              </>
+            )}
+
+            {/* Conteúdo da aba Investimentos */}
+            {adminTab === 'investments' && (
+              <div>
+                {loadingAdminInvestments ? (
+                  <div className="text-center py-12">
+                    <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+                    <p className="text-gray-600 dark:text-gray-300">Carregando investimentos...</p>
+                  </div>
+                ) : adminInvestments.length === 0 ? (
+                  <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-12 text-center border border-gray-200 dark:border-gray-700">
+                    <p className="text-gray-600 dark:text-gray-300 text-lg">
+                      Nenhum investimento encontrado.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead className="bg-gray-50 dark:bg-gray-700">
+                          <tr>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                              Projeto
+                            </th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                              Investidor
+                            </th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                              Valor (R$)
+                            </th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                              XRP
+                            </th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                              Status
+                            </th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                              Data
+                            </th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                              Ações
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                          {adminInvestments.map((investment) => (
+                            <tr key={investment.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <div className="text-sm font-medium text-gray-900 dark:text-white">
+                                  {investment.project?.name || 'N/A'}
+                                </div>
+                                <div className="text-xs text-gray-500 dark:text-gray-400">
+                                  {investment.project?.type || ''}
+                                </div>
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <div className="text-sm text-gray-900 dark:text-white">
+                                  {investment.user?.name || 'N/A'}
+                                </div>
+                                <div className="text-xs text-gray-500 dark:text-gray-400 font-mono">
+                                  {investment.user?.walletAddress 
+                                    ? `${investment.user.walletAddress.slice(0, 8)}...${investment.user.walletAddress.slice(-6)}`
+                                    : 'N/A'}
+                                </div>
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
+                                R$ {investment.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
+                                {investment.xrpAmount 
+                                  ? `${investment.xrpAmount.toFixed(2)} XRP`
+                                  : 'N/A'}
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                                  investment.status === 'published' 
+                                    ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
+                                    : investment.status === 'denied' || investment.status === 'cancelled'
+                                    ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
+                                    : investment.status === 'confirmed'
+                                    ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
+                                    : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'
+                                }`}>
+                                  {investment.status === 'published' ? 'Publicado' :
+                                   investment.status === 'denied' ? 'Negado' :
+                                   investment.status === 'cancelled' ? 'Cancelado' :
+                                   investment.status === 'confirmed' ? 'Confirmado' :
+                                   'Pendente'}
+                                </span>
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                {new Date(investment.createdAt).toLocaleDateString('pt-BR')}
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                <div className="flex gap-2">
+                                  {investment.status !== 'published' && investment.status !== 'denied' && (
+                                    <>
+                                      <motion.button
+                                        whileHover={{ scale: 1.05 }}
+                                        whileTap={{ scale: 0.95 }}
+                                        onClick={() => handleUpdateInvestmentStatus(investment.id, 'published')}
+                                        className="px-3 py-1 bg-green-500 hover:bg-green-600 text-white rounded-lg text-xs font-semibold transition-all duration-300"
+                                      >
+                                        Publicar
+                                      </motion.button>
+                                      <motion.button
+                                        whileHover={{ scale: 1.05 }}
+                                        whileTap={{ scale: 0.95 }}
+                                        onClick={() => handleUpdateInvestmentStatus(investment.id, 'denied')}
+                                        className="px-3 py-1 bg-red-500 hover:bg-red-600 text-white rounded-lg text-xs font-semibold transition-all duration-300"
+                                      >
+                                        Negar
+                                      </motion.button>
+                                    </>
+                                  )}
+                                  {investment.status === 'published' && (
+                                    <motion.button
+                                      whileHover={{ scale: 1.05 }}
+                                      whileTap={{ scale: 0.95 }}
+                                      onClick={() => handleUpdateInvestmentStatus(investment.id, 'cancelled')}
+                                      className="px-3 py-1 bg-orange-500 hover:bg-orange-600 text-white rounded-lg text-xs font-semibold transition-all duration-300"
+                                    >
+                                      Cancelar
+                                    </motion.button>
+                                  )}
+                                  {investment.txHash && (
+                                    <a
+                                      href={`https://testnet.xrpl.org/transactions/${investment.txHash}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="px-3 py-1 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-xs font-semibold transition-all duration-300 inline-block"
+                                    >
+                                      Ver TX
+                                    </a>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </motion.div>

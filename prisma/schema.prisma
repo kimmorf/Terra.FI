@@ -82,8 +82,10 @@ model Investment {
   id          String           @id @default(cuid())
   userId      String
   projectId   String
-  amount      Float
-  status      String           @default("pending") // pending, confirmed, cancelled
+  amount      Float            // Valor em R$
+  xrpAmount   Float?           // Valor em XRP enviado
+  txHash      String?          // Hash da transação XRP
+  status      String           @default("pending") // pending, confirmed, published, denied, cancelled
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
   user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
