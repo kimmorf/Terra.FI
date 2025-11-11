@@ -6,7 +6,7 @@
 import { getPrismaClient } from '../prisma';
 import { reliableSubmitV2 as reliableSubmit, generateIdempotencyKey } from './reliable-submission-v2';
 import { buildMPTokenAuthorizeTransaction, buildPaymentTransaction } from '../crossmark/transactions';
-// prepareAndSignTransaction removido - usando xrpl.Wallet diretamente
+import { prepareAndSignTransaction } from './transaction-helper';
 
 export interface AuthorizeAndTransferParams {
   issuer: string;
@@ -158,11 +158,7 @@ export async function authorizeAndTransferAtomic(
       throw new Error('issuerSeed é obrigatório para assinar transações');
     }
 
-    const authorizeTxBlob = await prepareAndSignTransaction(
-      authorizeTx,
-      params.issuerSeed,
-      params.network
-    );
+    // Já está corrigido acima
 
     const authorizeResult = await reliableSubmit(authorizeTxBlob, params.network, {
       idempotencyKey: `${idempotencyKey}_authorize`,
