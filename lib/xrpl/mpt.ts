@@ -49,7 +49,7 @@ export async function getTokenHolders(params: {
 }) {
     const { issuer, currency, network = 'testnet' } = params;
 
-    if (!isValidAddress(issuer)) {
+    if (!isValidXRPLAddress(issuer)) {
         throw new Error('Endereço XRPL inválido');
     }
 
@@ -128,7 +128,7 @@ export async function getAccountBalance(params: {
 export async function getAccountLines(params: { account: string; network?: string }) {
     const { account, network = 'testnet' } = params;
 
-    if (!isValidAddress(account)) {
+    if (!isValidXRPLAddress(account)) {
         throw new Error('Endereço XRPL inválido');
     }
 
@@ -163,7 +163,7 @@ export async function getAccountTransactions(params: {
 }) {
     const { account, network = 'testnet', limit = 20 } = params;
 
-    if (!isValidAddress(account)) {
+    if (!isValidXRPLAddress(account)) {
         throw new Error('Endereço XRPL inválido');
     }
 

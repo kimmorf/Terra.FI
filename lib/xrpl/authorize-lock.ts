@@ -235,7 +235,7 @@ export async function authorizeAndTransferAtomic(
     }
 
     // Registra transfer
-    if (prisma) {
+    if (prisma && transferResult.txHash) {
       await prisma.actionRecord.create({
         data: {
           type: 'payment',
@@ -245,7 +245,7 @@ export async function authorizeAndTransferAtomic(
           target: params.transferDestination,
           amount: params.transferAmount,
           network: params.network,
-          txHash: transferResult.txHash || undefined,
+          txHash: transferResult.txHash,
           metadata: {
             idempotencyKey,
             lockKey,

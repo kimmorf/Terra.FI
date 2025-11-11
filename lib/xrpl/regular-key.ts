@@ -6,10 +6,14 @@
  * operações diárias, enquanto a cold fica offline para operações críticas.
  */
 
-import { Client } from 'xrpl';
-import { isValidXRPLAddress } from '../xrpl/validation';
+import { Client, isValidXRPLAddress } from 'xrpl';
 import { xrplPool, type XRPLNetwork } from './pool';
 import { withXRPLRetry } from '../utils/retry';
+
+// Helper para validar endereço XRPL
+function isValidXRPLAddress(address: string): boolean {
+  return isValidXRPLAddress(address);
+}
 
 export interface RegularKeyConfig {
   /** Endereço da wallet principal (cold) */
@@ -94,7 +98,7 @@ export async function setRegularKey(
   const { coldWallet, hotWallet, network } = config;
 
   // Validações
-  if (!isValidAddress(coldWallet)) {
+  if (!isValidXRPLAddress(coldWallet)) {
     return { success: false, error: 'Endereço da wallet cold inválido' };
   }
 
@@ -171,7 +175,7 @@ export async function removeRegularKey(
   network: XRPLNetwork,
   secret: string
 ): Promise<{ success: boolean; txHash?: string; error?: string }> {
-  if (!isValidAddress(coldWallet)) {
+  if (!isValidXRPLAddress(coldWallet)) {
     return { success: false, error: 'Endereço da wallet cold inválido' };
   }
 

@@ -74,30 +74,7 @@ export class XRPLConnectionPool {
 
   private async createConnection(network: XRPLNetwork): Promise<Client> {
     const endpoint = XRPL_ENDPOINTS[network];
-    const client = new Client(endpoint, {
-      timeout: 30000,
-    });
-
-    // Configurar listeners
-    client.on('disconnected', () => {
-      const state = this.connections.get(network);
-      if (state && state.reconnectAttempts < this.MAX_RECONNECT_ATTEMPTS) {
-        state.reconnectAttempts++;
-        // Tentar reconectar após 1 segundo
-        setTimeout(() => {
-          this.reconnect(network).catch(() => {
-            // Silenciosamente falha reconexão
-          });
-        }, 1000);
-      } else {
-        // Remove conexão após muitas tentativas
-        this.connections.delete(network);
-      }
-    });
-
-    client.on('error', (error) => {
-      console.error(`[XRPL Pool] Erro na conexão ${network}:`, error);
-    });
+    const client = new Client(endpoint);
 
     await client.connect();
     return client;
