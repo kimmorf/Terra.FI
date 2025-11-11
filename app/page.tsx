@@ -17,10 +17,13 @@ import {
   Hammer,
   DollarSign,
   Lock,
-  ArrowRight
+  ArrowRight,
+  Plus,
+  X
 } from 'lucide-react';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { BackgroundParticles } from '@/components/BackgroundParticles';
+import { useSession } from '@/lib/auth-client';
 
 interface AdminProject {
   id: string;
@@ -51,10 +54,23 @@ const typeColors = {
 };
 
 export default function Home() {
+  const { data: session } = useSession();
   const [selectedRole, setSelectedRole] = useState<'investidor' | 'administrador'>('investidor');
   const [isConnecting, setIsConnecting] = useState(false);
   const [adminProjects, setAdminProjects] = useState<AdminProject[]>([]);
   const [loadingProjects, setLoadingProjects] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
+  const [formData, setFormData] = useState({
+    name: '',
+    type: 'LAND',
+    description: '',
+    purpose: '',
+    example: '',
+    minAmount: '',
+    maxAmount: '',
+    targetAmount: '',
+  });
 
   const handleConnect = () => {
     setIsConnecting(true);
@@ -82,6 +98,52 @@ export default function Home() {
       console.error('Erro ao buscar projetos do admin:', error);
     } finally {
       setLoadingProjects(false);
+    }
+  };
+
+  const handleCreateProject = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!session) {
+      alert('Você precisa estar logado para criar projetos');
+      return;
+    }
+
+    try {
+      setIsCreating(true);
+      const response = await fetch('/api/admin/projects', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(formData),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Erro ao criar projeto');
+      }
+
+      // Limpar formulário e fechar modal
+      setFormData({
+        name: '',
+        type: 'LAND',
+        description: '',
+        purpose: '',
+        example: '',
+        minAmount: '',
+        maxAmount: '',
+        targetAmount: '',
+      });
+      setShowCreateModal(false);
+      
+      // Atualizar lista de projetos
+      await fetchAdminProjects();
+      
+      alert('Projeto criado com sucesso!');
+    } catch (error: any) {
+      alert(error.message || 'Erro ao criar projeto');
+    } finally {
+      setIsCreating(false);
     }
   };
 
@@ -311,14 +373,27 @@ export default function Home() {
                     Emita Multi-Purpose Tokens (MPTs) na XRPL
                   </p>
                 </div>
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  className="px-8 py-4 bg-gradient-to-r from-blue-600 to-purple-600 dark:from-blue-500 dark:to-purple-500 text-white rounded-xl font-semibold text-lg shadow-lg hover:shadow-xl transition-all duration-300 flex items-center gap-3"
-                >
-                  <Wallet className="w-6 h-6" />
-                  Conectar Crossmark
-                </motion.button>
+                <div className="flex gap-4">
+                  {session && (
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => setShowCreateModal(true)}
+                      className="px-6 py-4 bg-gradient-to-r from-green-600 to-green-700 dark:from-green-500 dark:to-green-600 text-white rounded-xl font-semibold text-lg shadow-lg hover:shadow-xl transition-all duration-300 flex items-center gap-3"
+                    >
+                      <Plus className="w-6 h-6" />
+                      Criar Novo Investimento
+                    </motion.button>
+                  )}
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    className="px-8 py-4 bg-gradient-to-r from-blue-600 to-purple-600 dark:from-blue-500 dark:to-purple-500 text-white rounded-xl font-semibold text-lg shadow-lg hover:shadow-xl transition-all duration-300 flex items-center gap-3"
+                  >
+                    <Wallet className="w-6 h-6" />
+                    Conectar Crossmark
+                  </motion.button>
+                </div>
               </div>
             </motion.div>
 
@@ -412,6 +487,179 @@ export default function Home() {
               </div>
             )}
           </motion.div>
+        )}
+
+        {/* Modal de Criar Novo Investimento */}
+        {showCreateModal && (
+          <div className="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50 p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+            >
+              <div className="sticky top-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-6 flex justify-between items-center">
+                <h2 className="text-2xl font-bold text-gray-800 dark:text-white">
+                  Criar Novo Investimento
+                </h2>
+                <button
+                  onClick={() => setShowCreateModal(false)}
+                  className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition"
+                >
+                  <X className="w-6 h-6 text-gray-600 dark:text-gray-300" />
+                </button>
+              </div>
+
+              <form onSubmit={handleCreateProject} className="p-6 space-y-6">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                    Nome do Projeto *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="Ex: LAND-MPT"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                    Tipo *
+                  </label>
+                  <select
+                    required
+                    value={formData.type}
+                    onChange={(e) => setFormData({ ...formData, type: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="LAND">LAND - Tokenização de Terrenos</option>
+                    <option value="BUILD">BUILD - Financiamento de Construção</option>
+                    <option value="REV">REV - Direitos de Receita</option>
+                    <option value="COL">COL - Representação de Colateral</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                    Descrição
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.description}
+                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="Ex: Fractionalized land parcel"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                    Propósito *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={formData.purpose}
+                    onChange={(e) => setFormData({ ...formData, purpose: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="Ex: Tokenização de terrenos"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                    Exemplo
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.example}
+                    onChange={(e) => setFormData({ ...formData, example: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="Ex: 1 token = 1 m²"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                      Valor Mínimo (R$) *
+                    </label>
+                    <input
+                      type="number"
+                      required
+                      step="0.01"
+                      min="0"
+                      value={formData.minAmount}
+                      onChange={(e) => setFormData({ ...formData, minAmount: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="100.00"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                      Valor Máximo (R$)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={formData.maxAmount}
+                      onChange={(e) => setFormData({ ...formData, maxAmount: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="10000.00"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                      Meta (R$) *
+                    </label>
+                    <input
+                      type="number"
+                      required
+                      step="0.01"
+                      min="0"
+                      value={formData.targetAmount}
+                      onChange={(e) => setFormData({ ...formData, targetAmount: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="500000.00"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex gap-4 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateModal(false)}
+                    className="flex-1 px-6 py-3 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-white rounded-xl font-semibold hover:bg-gray-300 dark:hover:bg-gray-600 transition"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isCreating}
+                    className="flex-1 px-6 py-3 bg-gradient-to-r from-green-600 to-green-700 dark:from-green-500 dark:to-green-600 text-white rounded-xl font-semibold hover:shadow-lg transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {isCreating ? (
+                      <>
+                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        Criando...
+                      </>
+                    ) : (
+                      <>
+                        <Plus className="w-5 h-5" />
+                        Criar Projeto
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
         )}
       </div>
     </main>

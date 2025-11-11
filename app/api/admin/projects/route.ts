@@ -34,3 +34,60 @@ export async function GET(request: NextRequest) {
   }
 }
 
+// POST - Criar um novo projeto de investimento
+export async function POST(request: NextRequest) {
+  try {
+    const cookieStore = await cookies();
+    const session = await auth.api.getSession({
+      headers: request.headers,
+      cookies: cookieStore,
+    });
+    
+    if (!session) {
+      return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });
+    }
+
+    const body = await request.json();
+    const { name, type, description, purpose, example, minAmount, maxAmount, targetAmount } = body;
+
+    if (!name || !type || !purpose || !minAmount || !targetAmount) {
+      return NextResponse.json(
+        { error: 'Campos obrigatórios: name, type, purpose, minAmount, targetAmount' },
+        { status: 400 }
+      );
+    }
+
+    // Validar tipo
+    const validTypes = ['LAND', 'BUILD', 'REV', 'COL'];
+    if (!validTypes.includes(type)) {
+      return NextResponse.json(
+        { error: 'Tipo inválido. Use: LAND, BUILD, REV ou COL' },
+        { status: 400 }
+      );
+    }
+
+    // Criar projeto
+    const project = await prisma.investmentProject.create({
+      data: {
+        name,
+        type,
+        description: description || null,
+        purpose,
+        example: example || null,
+        minAmount: parseFloat(minAmount),
+        maxAmount: maxAmount ? parseFloat(maxAmount) : null,
+        targetAmount: parseFloat(targetAmount),
+        totalAmount: 0,
+        status: 'active',
+      },
+    });
+
+    return NextResponse.json(project, { status: 201 });
+  } catch (error) {
+    console.error('Erro ao criar projeto:', error);
+    return NextResponse.json(
+      { error: 'Erro ao criar projeto de investimento' },
+      { status: 500 }
+    );
+  }
+}
