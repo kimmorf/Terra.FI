@@ -6,7 +6,7 @@ import { CrossmarkProvider } from '@/lib/crossmark/CrossmarkProvider';
 
 export function Providers({ children }: { children: ReactNode }) {
   return (
-    <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
+    <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false} storageKey="terra-fi-theme">
       <CrossmarkProvider>
       {children}
       </CrossmarkProvider>
