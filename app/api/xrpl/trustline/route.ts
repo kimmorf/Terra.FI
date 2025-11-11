@@ -121,7 +121,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const txHash = result.result.tx_json?.hash || result.result.hash;
+    const txHash = result.result.tx_json?.hash || (result.result as any).hash;
 
     return NextResponse.json({
       success: true,

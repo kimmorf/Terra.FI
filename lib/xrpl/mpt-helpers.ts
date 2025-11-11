@@ -57,8 +57,12 @@ export interface CreateMPTParams {
 export interface AuthorizeMPTHolderParams {
   /** Endereço do holder que será autorizado */
   holderAddress: string;
-  /** MPTokenIssuanceID (hex) do token */
-  mptokenIssuanceID: string;
+  /** MPTokenIssuanceID (hex) do token - OPCIONAL se currency e issuer forem fornecidos */
+  mptokenIssuanceID?: string;
+  /** Currency do token (alternativa ao MPTokenIssuanceID) */
+  currency?: string;
+  /** Issuer do token (alternativa ao MPTokenIssuanceID) */
+  issuer?: string;
   /** Seed do holder (holder precisa autorizar-se) */
   holderSeed: string;
   /** Autorizar (true) ou desautorizar (false) */
@@ -207,7 +211,7 @@ export async function createMPT(params: CreateMPTParams): Promise<{
   const result = await rs.submitAndWait(signed.tx_blob);
 
   // Verificar resultado
-  const txResult = result.result.meta?.TransactionResult || result.result.engine_result;
+  const txResult = result.result.meta?.TransactionResult || (result.result as any).engine_result;
   if (txResult && !txResult.startsWith('tes')) {
     throw new Error(`Transação falhou: ${txResult}`);
   }
@@ -246,7 +250,7 @@ export async function createMPT(params: CreateMPTParams): Promise<{
     }
   }
 
-  const txHash = result.result.tx_json?.hash || result.result.hash;
+  const txHash = result.result.tx_json?.hash || (result.result as any).hash;
 
   if (!mptokenIssuanceID) {
     throw new Error('Não foi possível extrair MPTokenIssuanceID da resposta. Verifique o meta da transação.');
@@ -284,6 +288,8 @@ export async function authorizeMPTHolder(params: AuthorizeMPTHolderParams): Prom
   const {
     holderAddress,
     mptokenIssuanceID,
+    currency,
+    issuer,
     holderSeed,
     authorize = true,
     network = 'testnet'
@@ -294,12 +300,16 @@ export async function authorizeMPTHolder(params: AuthorizeMPTHolderParams): Prom
     throw new Error('holderAddress inválido');
   }
 
-  if (!mptokenIssuanceID) {
-    throw new Error('mptokenIssuanceID é obrigatório');
-  }
-
   if (!holderSeed) {
     throw new Error('holderSeed é obrigatório');
+  }
+
+  // Validar que temos identificação do token (MPTokenIssuanceID OU Currency+Issuer)
+  const hasMPTokenIssuanceID = !!mptokenIssuanceID;
+  const hasCurrencyIssuer = !!(currency && issuer);
+
+  if (!hasMPTokenIssuanceID && !hasCurrencyIssuer) {
+    throw new Error('É obrigatório fornecer MPTokenIssuanceID OU (Currency + Issuer)');
   }
 
   // Criar wallet
@@ -316,8 +326,22 @@ export async function authorizeMPTHolder(params: AuthorizeMPTHolderParams): Prom
   const transaction: Record<string, any> = {
     TransactionType: 'MPTokenAuthorize',
     Account: holderAddress, // Holder autoriza a si mesmo
-    MPTokenIssuanceID: mptokenIssuanceID,
+    Holder: holderAddress,  // Holder também precisa estar aqui
   };
+
+  // Adicionar identificação do token
+  if (hasMPTokenIssuanceID) {
+    // Validar formato do MPTokenIssuanceID (deve ser 64 caracteres hex)
+    const cleanedID = mptokenIssuanceID!.replace(/[^0-9A-Fa-f]/g, '');
+    if (cleanedID.length !== 64) {
+      throw new Error(`MPTokenIssuanceID inválido. Esperado 64 caracteres hex, recebido: ${cleanedID.length}`);
+    }
+    transaction.MPTokenIssuanceID = cleanedID.toUpperCase();
+  } else {
+    // Usar Currency + Issuer
+    transaction.Currency = currency!.toUpperCase();
+    transaction.Issuer = issuer;
+  }
 
   // Se desautorizar, adicionar flag
   if (!authorize) {
@@ -335,12 +359,12 @@ export async function authorizeMPTHolder(params: AuthorizeMPTHolderParams): Prom
   const result = await rs.submitAndWait(signed.tx_blob);
 
   // Verificar resultado
-  const txResult = result.result.meta?.TransactionResult || result.result.engine_result;
+  const txResult = result.result.meta?.TransactionResult || (result.result as any).engine_result;
   if (txResult && !txResult.startsWith('tes')) {
     throw new Error(`Transação falhou: ${txResult}`);
   }
 
-  const txHash = result.result.tx_json?.hash || result.result.hash;
+  const txHash = result.result.tx_json?.hash || (result.result as any).hash;
   return txHash;
 }
 
@@ -390,6 +414,12 @@ export async function sendMPT(params: SendMPTParams): Promise<string> {
     throw new Error('mptokenIssuanceID é obrigatório');
   }
 
+  // Validar formato do MPTokenIssuanceID
+  const cleanedID = mptokenIssuanceID.replace(/[^0-9A-Fa-f]/g, '');
+  if (cleanedID.length !== 64) {
+    throw new Error(`MPTokenIssuanceID inválido. Esperado 64 caracteres hex, recebido: ${cleanedID.length}`);
+  }
+
   if (!amount || parseFloat(amount) <= 0) {
     throw new Error('amount inválido');
   }
@@ -414,7 +444,7 @@ export async function sendMPT(params: SendMPTParams): Promise<string> {
     Account: fromAddress,
     Destination: toAddress,
     Amount: {
-      mpt_issuance_id: mptokenIssuanceID,
+      mpt_issuance_id: cleanedID.toUpperCase(),
       value: amount,
     },
   };
@@ -442,12 +472,12 @@ export async function sendMPT(params: SendMPTParams): Promise<string> {
   const result = await rs.submitAndWait(signed.tx_blob);
 
   // Verificar resultado
-  const txResult = result.result.meta?.TransactionResult || result.result.engine_result;
+  const txResult = result.result.meta?.TransactionResult || (result.result as any).engine_result;
   if (txResult && !txResult.startsWith('tes')) {
     throw new Error(`Transação falhou: ${txResult}`);
   }
 
-  const txHash = result.result.tx_json?.hash || result.result.hash;
+  const txHash = result.result.tx_json?.hash || (result.result as any).hash;
   return txHash;
 }
 

@@ -32,7 +32,8 @@
     "test:negative": "vitest run tests/e2e/negative-tests.test.ts",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
-    "test:report": "tsx scripts/generate-test-report.ts"
+    "test:report": "tsx scripts/generate-test-report.ts",
+    "test:mpt-flow": "tsx scripts/tests/test-mpt-flow.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
