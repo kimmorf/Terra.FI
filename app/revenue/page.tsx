@@ -18,7 +18,7 @@ import { BackgroundParticles } from '@/components/BackgroundParticles';
 import { useCrossmarkContext } from '@/lib/crossmark/CrossmarkProvider';
 import { TOKEN_PRESETS, type TokenPreset } from '@/lib/tokens/presets';
 import { STABLECOINS, type StablecoinConfig } from '@/lib/tokens/stablecoins';
-import { getTokenHolders, calculateTotalSupply } from '@/lib/xrpl/mpt';
+import { getTokenHolders, calculateTotalSupply, hasTrustLine } from '@/lib/xrpl/mpt';
 import { sendMPToken, extractTransactionHash } from '@/lib/crossmark/transactions';
 import { registerAction } from '@/lib/elysia-client';
 
@@ -158,6 +158,23 @@ export default function RevenuePage() {
       }));
 
       try {
+        const hasLine = await hasTrustLine({
+          account: holderAddress,
+          currency: selectedStable.currency,
+          issuer: selectedStable.issuer,
+          network: account.network,
+        }).catch(() => false);
+
+        if (!hasLine) {
+          const message = `Holder sem trustline configurada para ${selectedStable.currency}.`;
+          setPaymentStatus((prev) => ({
+            ...prev,
+            [holderAddress]: { error: message },
+          }));
+          setIsPaying(false);
+          return;
+        }
+
         const response = await sendMPToken({
           sender: account.address,
           destination: holderAddress,

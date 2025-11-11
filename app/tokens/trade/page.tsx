@@ -52,6 +52,10 @@ export default function TradeTokensPage() {
     const [purchaseProject, setPurchaseProject] = useState<TokenPreset['id']>(
         TOKEN_PRESETS[0]?.id ?? 'LAND',
     );
+    const selectedProject = useMemo(
+        () => TOKEN_PRESETS.find((token) => token.id === purchaseProject),
+        [purchaseProject],
+    );
     const [purchaseMessage, setPurchaseMessage] = useState<string | null>(null);
     const [purchaseError, setPurchaseError] = useState<string | null>(null);
 
@@ -61,8 +65,11 @@ export default function TradeTokensPage() {
 
     const [authorized, setAuthorized] = useState(false);
     const [issuerAddress, setIssuerAddress] = useState<string>(
-        TOKEN_PRESETS.find((token) => token.id === purchaseProject)?.issuerAddress ?? '',
+        selectedProject?.issuerAddress ?? '',
     );
+    const [mptTrustlineStatus, setMptTrustlineStatus] = useState<'unknown' | 'ok' | 'missing'>('unknown');
+    const [mptTrustlineMessage, setMptTrustlineMessage] = useState<string | null>(null);
+    const [mptTrustlineError, setMptTrustlineError] = useState<string | null>(null);
 
     useEffect(() => {
         let cancelled = false;
@@ -116,9 +123,62 @@ export default function TradeTokensPage() {
     }, [account, purchaseProject]);
 
     useEffect(() => {
-        const preset = TOKEN_PRESETS.find((token) => token.id === purchaseProject);
-        setIssuerAddress(preset?.issuerAddress ?? '');
-    }, [purchaseProject]);
+        setIssuerAddress(selectedProject?.issuerAddress ?? '');
+        setMptTrustlineStatus('unknown');
+        setMptTrustlineMessage(null);
+        setMptTrustlineError(null);
+    }, [purchaseProject, selectedProject]);
+
+    useEffect(() => {
+        setMptTrustlineMessage(null);
+        setMptTrustlineError(null);
+    }, [issuerAddress]);
+
+    useEffect(() => {
+        const currentAccount = account;
+        const project = selectedProject;
+
+        if (!currentAccount || !project) {
+            setMptTrustlineStatus('unknown');
+            return;
+        }
+
+        const resolvedIssuer = ((issuerAddress && issuerAddress.trim()) || project.issuerAddress || '').trim();
+
+        if (!resolvedIssuer) {
+            setMptTrustlineStatus('missing');
+            return;
+        }
+
+        const safeAccount = currentAccount;
+        const safeProject = project;
+
+        let cancelled = false;
+        async function checkMptTrustline() {
+            try {
+                const hasLine = await hasTrustLine({
+                    account: safeAccount.address,
+                    currency: safeProject.currency,
+                    issuer: resolvedIssuer,
+                    network: safeAccount.network,
+                });
+                if (!cancelled) {
+                    setMptTrustlineStatus(hasLine ? 'ok' : 'missing');
+                }
+            } catch (error) {
+                console.warn('[Trade] Falha ao verificar trustline do MPT', error);
+                if (!cancelled) {
+                    setMptTrustlineStatus('unknown');
+                }
+            }
+        }
+
+        checkMptTrustline();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [account, selectedProject, issuerAddress]);
 
     const handleConnect = useCallback(async () => {
         try {
@@ -135,6 +195,9 @@ export default function TradeTokensPage() {
         setPurchaseError(null);
         setSellMessage(null);
         setSellError(null);
+        setMptTrustlineStatus('unknown');
+        setMptTrustlineMessage(null);
+        setMptTrustlineError(null);
     }, [disconnect]);
 
     const copyAddress = useCallback(() => {
@@ -163,12 +226,12 @@ export default function TradeTokensPage() {
             setPurchaseMessage('Trustline criada com sucesso.');
             setPurchaseError(null);
             await registerAction({
-                type: 'authorize',
+                type: 'trustset',
                 token: { currency: selectedStable.currency, issuer: selectedStable.issuer },
                 actor: account.address,
                 network: account.network,
                 txHash: hash ?? 'trustline',
-                metadata: { action: 'trustset' },
+                metadata: { limit: '1000000' },
             });
         } catch (error) {
             console.error('Erro ao criar trustline:', error);
@@ -178,17 +241,67 @@ export default function TradeTokensPage() {
         }
     }, [account, selectedStable]);
 
+    const handleCreateMptTrustline = useCallback(async () => {
+        const currentAccount = account;
+        const project = selectedProject;
+
+        if (!currentAccount || !project) return;
+
+        const resolvedIssuer = ((issuerAddress && issuerAddress.trim()) || project.issuerAddress || '').trim();
+
+        if (!resolvedIssuer) {
+            setMptTrustlineError('Informe o endereço do emissor para criar a trustline do MPT.');
+            return;
+        }
+
+        setIsSubmitting(true);
+        setMptTrustlineMessage(null);
+        setMptTrustlineError(null);
+
+        try {
+            const response = await trustSetToken({
+                account: currentAccount.address,
+                currency: project.currency,
+                issuer: resolvedIssuer,
+                limit: '1000000000',
+            });
+            const hash = extractTransactionHash(response);
+
+            await registerAction({
+                type: 'trustset',
+                token: { currency: project.currency, issuer: resolvedIssuer },
+                actor: currentAccount.address,
+                network: currentAccount.network,
+                txHash: hash ?? 'trustline',
+                metadata: { limit: '1000000000', scope: 'mpt' },
+            });
+
+            setMptTrustlineStatus('ok');
+            setMptTrustlineMessage(`Trustline para ${project.currency} configurada.`);
+        } catch (error) {
+            console.error('Erro ao criar trustline do MPT:', error);
+            const message =
+                error instanceof Error ? error.message : 'Falha ao criar trustline do MPT.';
+            setMptTrustlineError(message);
+        } finally {
+            setIsSubmitting(false);
+        }
+    }, [account, selectedProject, issuerAddress]);
+
     const handleAuthorizeInvestor = useCallback(async () => {
-        if (!account || !selectedStable) return;
-        const project = TOKEN_PRESETS.find((token) => token.id === purchaseProject);
-        if (!project) return;
+        const currentAccount = account;
+        const project = selectedProject;
+
+        if (!currentAccount || !selectedStable || !project) return;
+
+        const resolvedIssuer = (issuerAddress || project.issuerAddress || currentAccount.address).trim();
 
         setIsSubmitting(true);
         try {
             const response = await authorizeMPToken({
-                issuer: issuerAddress || account.address,
+                issuer: resolvedIssuer,
                 currency: project.currency,
-                holder: account.address,
+                holder: currentAccount.address,
                 authorize: true,
             });
             const hash = extractTransactionHash(response);
@@ -197,11 +310,14 @@ export default function TradeTokensPage() {
             setPurchaseError(null);
             await registerAction({
                 type: 'authorize',
-                token: { currency: project.currency, issuer: issuerAddress || account.address },
-                actor: account.address,
-                network: account.network,
+                token: {
+                    currency: project.currency,
+                    issuer: resolvedIssuer,
+                },
+                actor: currentAccount.address,
+                network: currentAccount.network,
                 txHash: hash ?? 'authorize',
-                metadata: { project: project.id, holder: account.address },
+                metadata: { project: project.id, holder: currentAccount.address },
             });
         } catch (error) {
             console.error('Erro ao autorizar investidor:', error);
@@ -209,18 +325,28 @@ export default function TradeTokensPage() {
         } finally {
             setIsSubmitting(false);
         }
-    }, [account, purchaseProject, selectedStable, issuerAddress]);
+    }, [account, selectedStable, selectedProject, issuerAddress]);
 
     const handlePurchase = useCallback(async () => {
-        if (!account || !selectedStable) return;
-        const project = TOKEN_PRESETS.find((token) => token.id === purchaseProject);
-        if (!project) {
-            setPurchaseError('Selecione um token válido.');
-            return;
-        }
+        const currentAccount = account;
+        const project = selectedProject;
+
+        if (!currentAccount || !selectedStable || !project) return;
 
         if (trustlineStatus !== 'ok') {
             setPurchaseError('Crie a trustline para o stablecoin antes de comprar.');
+            return;
+        }
+
+        if (mptTrustlineStatus !== 'ok') {
+            setPurchaseError('Crie a trustline do token antes de comprar.');
+            return;
+        }
+
+        const resolvedIssuer =
+            (issuerAddress && issuerAddress.trim()) || project.issuerAddress?.trim() || '';
+        if (!resolvedIssuer) {
+            setPurchaseError('Informe o endereço do emissor para concluir a compra.');
             return;
         }
 
@@ -230,8 +356,8 @@ export default function TradeTokensPage() {
 
         try {
             const response = await sendMPToken({
-                sender: account.address,
-                destination: issuerAddress || account.address,
+                sender: currentAccount.address,
+                destination: resolvedIssuer,
                 amount: purchaseAmount,
                 currency: selectedStable.currency,
                 issuer: selectedStable.issuer,
@@ -242,10 +368,10 @@ export default function TradeTokensPage() {
             await registerAction({
                 type: 'payment',
                 token: { currency: selectedStable.currency, issuer: selectedStable.issuer },
-                actor: account.address,
-                target: issuerAddress || account.address,
+                actor: currentAccount.address,
+                target: resolvedIssuer,
                 amount: purchaseAmount,
-                network: account.network,
+                network: currentAccount.network,
                 txHash: hash ?? 'payment',
                 metadata: { project: project.id },
             });
@@ -261,18 +387,24 @@ export default function TradeTokensPage() {
     }, [
         account,
         selectedStable,
-        purchaseProject,
+        selectedProject,
         purchaseAmount,
         trustlineStatus,
+        mptTrustlineStatus,
         refreshAccount,
         issuerAddress,
     ]);
 
     const handleSell = useCallback(async () => {
-        if (!account || !selectedStable) return;
-        const project = TOKEN_PRESETS.find((token) => token.id === purchaseProject);
-        if (!project) {
-            setSellError('Selecione um token válido.');
+        const currentAccount = account;
+        const project = selectedProject;
+
+        if (!currentAccount || !selectedStable || !project) return;
+
+        const resolvedIssuer =
+            (issuerAddress && issuerAddress.trim()) || project.issuerAddress?.trim() || '';
+        if (!resolvedIssuer) {
+            setSellError('Informe o endereço do emissor para concluir a venda.');
             return;
         }
 
@@ -282,22 +414,22 @@ export default function TradeTokensPage() {
 
         try {
             const response = await sendMPToken({
-                sender: account.address,
-                destination: issuerAddress || selectedStable.issuer,
+                sender: currentAccount.address,
+                destination: resolvedIssuer,
                 amount: sellAmount,
                 currency: project.currency,
-                issuer: issuerAddress || account.address,
+                issuer: resolvedIssuer,
                 memo: 'Venda MPT',
             });
             const hash = extractTransactionHash(response);
 
             await registerAction({
                 type: 'payment',
-                token: { currency: project.currency, issuer: issuerAddress || account.address },
-                actor: account.address,
-                target: issuerAddress || selectedStable.issuer,
+                token: { currency: project.currency, issuer: resolvedIssuer },
+                actor: currentAccount.address,
+                target: resolvedIssuer,
                 amount: sellAmount,
-                network: account.network,
+                network: currentAccount.network,
                 txHash: hash ?? 'sell',
                 metadata: { project: project.id, action: 'sell' },
             });
@@ -310,7 +442,7 @@ export default function TradeTokensPage() {
         } finally {
             setIsSubmitting(false);
         }
-    }, [account, selectedStable, purchaseProject, sellAmount, refreshAccount, issuerAddress]);
+    }, [account, selectedStable, selectedProject, sellAmount, refreshAccount, issuerAddress]);
 
     return (
         <main className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-100 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 transition-colors duration-300 relative overflow-hidden">
@@ -517,6 +649,33 @@ export default function TradeTokensPage() {
                                     Use o endereço que administra o token. Padrão de teste: {TOKEN_PRESETS.find((p) => p.id === purchaseProject)?.issuerAddress}
                                 </p>
                             </div>
+                            <div className="text-sm text-gray-600 dark:text-gray-300">
+                                Trustline do token:{' '}
+                                {mptTrustlineStatus === 'ok' ? (
+                                    <span className="text-green-600 dark:text-green-400">Configurada</span>
+                                ) : mptTrustlineStatus === 'missing' ? (
+                                    <span className="text-red-600 dark:text-red-400">Ausente</span>
+                                ) : (
+                                    <span className="text-gray-500 dark:text-gray-400">Desconhecida</span>
+                                )}
+                            </div>
+                            <button
+                                onClick={handleCreateMptTrustline}
+                                disabled={mptTrustlineStatus === 'ok' || isSubmitting || !isConnected}
+                                className="px-5 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-semibold shadow disabled:opacity-50"
+                            >
+                                Criar trustline do token
+                            </button>
+                            {mptTrustlineMessage && (
+                                <div className="flex items-start gap-2 text-sm text-green-600 dark:text-green-400">
+                                    <Check className="w-4 h-4 mt-0.5" /> {mptTrustlineMessage}
+                                </div>
+                            )}
+                            {mptTrustlineError && (
+                                <div className="flex items-start gap-2 text-sm text-red-600 dark:text-red-400">
+                                    <AlertCircle className="w-4 h-4 mt-0.5" /> {mptTrustlineError}
+                                </div>
+                            )}
                             <button
                                 onClick={handleAuthorizeInvestor}
                                 disabled={authorized || isSubmitting || !isConnected}
