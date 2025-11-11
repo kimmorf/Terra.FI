@@ -24,12 +24,17 @@ import {
   Copy,
   Check,
   AlertCircle,
+  Info,
 } from 'lucide-react';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { BackgroundParticles } from '@/components/BackgroundParticles';
 import { useSession } from '@/lib/auth-client';
 import { useCrossmarkContext } from '@/lib/crossmark/CrossmarkProvider';
-import { buildMPTokenIssuanceTransaction, signAndSubmitTransaction } from '@/lib/crossmark/transactions';
+import {
+  buildMPTokenIssuanceTransaction,
+  signAndSubmitTransaction,
+} from '@/lib/crossmark/transactions';
+import { registerIssuance } from '@/lib/elysia-client';
 import { getAccountMPTokens, getXRPBalance } from '@/lib/xrpl/account';
 
 interface AdminProject {
@@ -45,6 +50,13 @@ interface AdminProject {
   targetAmount: number;
   status: string;
 }
+
+const TOKEN_CONFIG: Record<string, { decimals: number; transferable: boolean }> = {
+  LAND: { decimals: 2, transferable: true },
+  BUILD: { decimals: 2, transferable: true },
+  REV: { decimals: 2, transferable: true },
+  COL: { decimals: 0, transferable: false },
+};
 
 const typeIcons = {
   LAND: Mountain,
@@ -94,6 +106,9 @@ export default function Home() {
   const [loadingTokens, setLoadingTokens] = useState(false);
   const [tokensError, setTokensError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [issuingProjectId, setIssuingProjectId] = useState<string | null>(null);
+  const [issuanceSuccess, setIssuanceSuccess] = useState<string | null>(null);
+  const [issuanceError, setIssuanceError] = useState<string | null>(null);
 
   const loadAccountData = useCallback(async () => {
     if (!account) {
@@ -168,7 +183,7 @@ export default function Home() {
     if (selectedRole === 'administrador') {
       fetchAdminProjects();
     }
-  }, [selectedRole]);
+  }, [selectedRole, fetchAdminProjects]);
 
   useEffect(() => {
     if (isConnected && account) {
@@ -180,22 +195,24 @@ export default function Home() {
     }
   }, [isConnected, account, loadAccountData]);
 
-  const fetchAdminProjects = async () => {
+  const fetchAdminProjects = useCallback(async () => {
     try {
       setLoadingProjects(true);
       const response = await fetch('/api/admin/projects');
       if (response.ok) {
         const data = await response.json();
         setAdminProjects(data);
+      } else {
+        console.error('Erro ao carregar projetos:', await response.text());
       }
     } catch (error) {
       console.error('Erro ao buscar projetos do admin:', error);
     } finally {
       setLoadingProjects(false);
     }
-  };
+  }, []);
 
-  const handleCreateProject = async (e: React.FormEvent) => {
+  const handleCreateProject = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!session) {
       alert('Você precisa estar logado para criar projetos');
@@ -240,6 +257,110 @@ export default function Home() {
       setIsCreating(false);
     }
   };
+
+  const handleIssueToken = useCallback(
+    async (project: AdminProject) => {
+      if (!isConnected || !account) {
+        setIssuanceError('Conecte sua carteira Crossmark antes de emitir tokens.');
+        setIssuanceSuccess(null);
+        return;
+      }
+
+      const config = TOKEN_CONFIG[project.type] ?? { decimals: 2, transferable: true };
+      const decimals = config.decimals;
+      const transferable = config.transferable;
+
+      const baseUnitsNumber = Math.round(project.targetAmount * Math.pow(10, decimals));
+
+      if (!Number.isFinite(baseUnitsNumber) || baseUnitsNumber <= 0) {
+        setIssuanceError('Valor de emissão inválido. Verifique a meta do projeto.');
+        setIssuanceSuccess(null);
+        return;
+      }
+
+      const baseUnits = baseUnitsNumber.toString();
+
+      const metadata = {
+        name: project.name,
+        type: project.type,
+        purpose: project.purpose,
+        description: project.description,
+        example: project.example,
+        minAmount: project.minAmount,
+        maxAmount: project.maxAmount,
+        targetAmount: project.targetAmount,
+        status: project.status,
+        generatedAt: new Date().toISOString(),
+      } as Record<string, unknown>;
+
+      setIssuanceError(null);
+      setIssuanceSuccess(null);
+      setIssuingProjectId(project.id);
+
+      try {
+        const transaction = buildMPTokenIssuanceTransaction({
+          issuer: account.address,
+          currency: project.type,
+          amount: baseUnits,
+          decimals,
+          transferable,
+          metadata,
+        });
+
+        const response = await signAndSubmitTransaction(transaction);
+
+        const txHash =
+          response?.data?.hash ??
+          response?.data?.result?.hash ??
+          response?.data?.result?.tx_json?.hash ??
+          response?.data?.tx_json?.hash ??
+          response?.result?.hash;
+
+        if (!txHash) {
+          throw new Error('Não foi possível identificar o hash da transação emitida.');
+        }
+
+        await registerIssuance({
+          projectId: project.id,
+          projectName: project.name,
+          tokenType: project.type,
+          currency: (transaction.Currency as string) ?? project.type,
+          amount: baseUnits,
+          decimals,
+          issuer: account.address,
+          network: account.network,
+          txHash,
+          metadata,
+          rawResponse: response,
+        });
+
+        setIssuanceSuccess(`Token ${project.name} emitido com sucesso. TX: ${txHash}`);
+
+        if (selectedRole === 'administrador') {
+          await fetchAdminProjects();
+        }
+
+        await refreshAccount();
+        await loadAccountData();
+      } catch (error) {
+        console.error('Erro ao emitir token:', error);
+        const message =
+          error instanceof Error ? error.message : 'Erro desconhecido ao emitir token.';
+        setIssuanceError(message);
+        setIssuanceSuccess(null);
+      } finally {
+        setIssuingProjectId(null);
+      }
+    },
+    [
+      account,
+      isConnected,
+      selectedRole,
+      fetchAdminProjects,
+      refreshAccount,
+      loadAccountData,
+    ],
+  );
 
   const steps = [
     {
@@ -665,6 +786,29 @@ export default function Home() {
               </div>
             </motion.div>
 
+            {(issuanceSuccess || issuanceError) && (
+              <div className="mb-6">
+                {issuanceSuccess && (
+                  <div className="flex items-start gap-3 p-4 rounded-xl border border-green-300 bg-green-50 text-green-700 dark:border-green-700 dark:bg-green-900/30 dark:text-green-300">
+                    <Info className="w-5 h-5 mt-1" />
+                    <div>
+                      <p className="font-semibold">Emissão registrada</p>
+                      <p className="text-sm">{issuanceSuccess}</p>
+                    </div>
+                  </div>
+                )}
+                {issuanceError && (
+                  <div className="mt-3 flex items-start gap-3 p-4 rounded-xl border border-red-300 bg-red-50 text-red-700 dark:border-red-700 dark:bg-red-900/30 dark:text-red-300">
+                    <AlertCircle className="w-5 h-5 mt-1" />
+                    <div>
+                      <p className="font-semibold">Erro durante emissão</p>
+                      <p className="text-sm">{issuanceError}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* MPT Cards Grid */}
             {loadingProjects ? (
               <div className="text-center py-12">
@@ -744,10 +888,26 @@ export default function Home() {
                       <motion.button
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
-                        className="w-full px-4 py-3 bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700 text-white rounded-xl font-semibold transition-all duration-300 flex items-center justify-center gap-2 shadow-md hover:shadow-lg"
+                        onClick={() => handleIssueToken(project)}
+                        disabled={
+                          !isConnected ||
+                          !account ||
+                          isWalletLoading ||
+                          issuingProjectId === project.id
+                        }
+                        className="w-full px-4 py-3 bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700 text-white rounded-xl font-semibold transition-all duration-300 flex items-center justify-center gap-2 shadow-md hover:shadow-lg disabled:opacity-60 disabled:cursor-not-allowed"
                       >
-                        Emitir {project.name}
-                        <ArrowRight className="w-5 h-5" />
+                        {issuingProjectId === project.id ? (
+                          <>
+                            <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                            Emitindo...
+                          </>
+                        ) : (
+                          <>
+                            Emitir {project.name}
+                            <ArrowRight className="w-5 h-5" />
+                          </>
+                        )}
                       </motion.button>
                     </motion.div>
                   );
