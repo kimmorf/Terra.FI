@@ -405,6 +405,7 @@ export default function TokenFactoryPage() {
         refreshAccount,
         loadIssuedTokens,
         selectedFiles,
+        fileDescriptions,
     ]);
 
     const explorerUrl = getExplorerUrl(account?.network, txHash);

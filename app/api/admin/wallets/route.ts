@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Wallet, Client } from 'xrpl';
+import { Wallet } from 'xrpl';
 import { getPrismaClient } from '@/lib/prisma';
 import { encryptSecret } from '@/lib/utils/crypto';
-
-const TESTNET_URL = 'wss://s.altnet.rippletest.net:51233';
 
 function sanitizeWallet(wallet: any) {
   if (!wallet) return null;
@@ -86,10 +84,22 @@ export async function POST(request: NextRequest) {
 
     if (!seed && network === 'testnet' && fund) {
       try {
-        const client = new Client(TESTNET_URL);
-        await client.connect();
-        await client.fundWallet(wallet);
-        await client.disconnect();
+        const faucetUrl = 'https://faucet.altnet.rippletest.net/accounts';
+        const response = await fetch(faucetUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            destination: wallet.address,
+            xrpAmount: '1000'
+          }),
+        });
+        
+        if (!response.ok) {
+          throw new Error(`Faucet retornou ${response.status}`);
+        }
+        
+        // Aguardar um pouco para o funding ser processado
+        await new Promise(resolve => setTimeout(resolve, 3000));
       } catch (fundError) {
         console.warn('[ServiceWallet][POST] Falha ao financiar carteira testnet:', fundError);
       }

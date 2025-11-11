@@ -160,9 +160,23 @@ export default function Home() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const handler = () => refreshServiceWallet();
-    window.addEventListener('storage', handler);
-    return () => window.removeEventListener('storage', handler);
+    
+    // Handler para eventos de storage (mudanças em outras abas/janelas)
+    const storageHandler = () => refreshServiceWallet();
+    
+    // Handler para evento customizado de seleção de carteira
+    const walletSelectedHandler = (event: Event) => {
+      console.log('[App] Carteira selecionada, recarregando...', event);
+      refreshServiceWallet();
+    };
+    
+    window.addEventListener('storage', storageHandler);
+    window.addEventListener('walletSelected', walletSelectedHandler);
+    
+    return () => {
+      window.removeEventListener('storage', storageHandler);
+      window.removeEventListener('walletSelected', walletSelectedHandler);
+    };
   }, [refreshServiceWallet]);
 
   const effectiveAddress = serviceWallet?.address ?? account?.address ?? null;

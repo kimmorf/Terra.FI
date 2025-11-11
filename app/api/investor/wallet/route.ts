@@ -11,15 +11,38 @@ export async function GET() {
       );
     }
 
+    // Busca qualquer carteira ativa (issuer, user, ou admin)
+    // Prioriza user, depois issuer, depois admin
     const wallet = await prisma.serviceWallet.findFirst({
+      where: { isActive: true },
+      orderBy: [
+        // Prioriza type: user
+        { type: 'asc' }, // 'admin' < 'issuer' < 'user' alfabeticamente, então invertemos a lógica abaixo
+      ],
+    });
+
+    // Se encontrou, mas queremos priorizar 'user' > 'issuer' > 'admin'
+    // Vamos buscar de forma mais explícita
+    const userWallet = await prisma.serviceWallet.findFirst({
       where: { type: 'user', isActive: true },
     });
 
-    if (!wallet) {
+    const issuerWallet = await prisma.serviceWallet.findFirst({
+      where: { type: 'issuer', isActive: true },
+    });
+
+    const adminWallet = await prisma.serviceWallet.findFirst({
+      where: { type: 'admin', isActive: true },
+    });
+
+    // Prioridade: user > issuer > admin
+    const selectedWallet = userWallet || issuerWallet || adminWallet;
+
+    if (!selectedWallet) {
       return NextResponse.json({ wallet: null });
     }
 
-    const { seedEncrypted, ...sanitized } = wallet;
+    const { seedEncrypted, ...sanitized } = selectedWallet;
     return NextResponse.json({ wallet: sanitized });
   } catch (error) {
     console.error('[InvestorWallet][GET] Erro ao obter carteira ativa:', error);

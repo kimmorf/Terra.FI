@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { authorizeMPTHolder } from '@/lib/xrpl/mpt-helpers';
 import { getPrismaClient } from '@/lib/prisma';
 import { decryptSecret } from '@/lib/utils/crypto';
+import type { XRPLNetwork } from '@/lib/xrpl/pool';
 
 /**
  * API Route para autorizar holder a receber MPT
@@ -33,7 +34,7 @@ export async function POST(request: NextRequest) {
 
     let holderAddress = rawHolder as string | undefined;
     let holderSeed = rawSeed as string | undefined;
-    let network = rawNetwork as string;
+    let network = rawNetwork as XRPLNetwork;
 
     if (walletId) {
       if (!prisma) {
@@ -48,7 +49,7 @@ export async function POST(request: NextRequest) {
       }
       holderAddress = wallet.address;
       holderSeed = decryptSecret(wallet.seedEncrypted);
-      network = wallet.network;
+      network = wallet.network as XRPLNetwork;
     }
 
     if (!holderAddress || typeof holderAddress !== 'string') {

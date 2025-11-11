@@ -124,6 +124,13 @@ export default function AdminWalletsPage() {
 
       // Seleciona automaticamente a carteira recém criada
       await selectWalletOnServer(wallet.id);
+      
+      if (typeof window !== 'undefined') {
+        // Disparar evento customizado para notificar outras páginas
+        window.dispatchEvent(new CustomEvent('walletSelected', { detail: { walletId: wallet.id } }));
+        window.dispatchEvent(new Event('storage'));
+      }
+      
       setSuccess('Carteira criada e selecionada com sucesso!');
       setLabel('');
       setDocument('');
@@ -159,6 +166,13 @@ export default function AdminWalletsPage() {
       setSelectedWalletId(id);
       if (typeof window !== 'undefined') {
         localStorage.setItem(STORAGE_KEY, id);
+        
+        // Disparar evento customizado para notificar outras páginas/componentes
+        // que a carteira foi alterada
+        window.dispatchEvent(new CustomEvent('walletSelected', { detail: { walletId: id } }));
+        
+        // Também dispara evento storage para compatibilidade
+        window.dispatchEvent(new Event('storage'));
       }
       setSuccess('Carteira selecionada para operações administrativas.');
       await loadWallets();
