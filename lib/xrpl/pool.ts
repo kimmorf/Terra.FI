@@ -44,25 +44,44 @@ export class XRPLConnectionPool {
     const existing = this.connections.get(network);
     if (existing) {
       // Verificar se está realmente conectado
-      if (existing.client.isConnected()) {
-        existing.lastUsed = Date.now();
-        return existing.client;
-      } else {
-        // Tentar reconectar antes de remover
-        console.log(`[XRPL Pool] Conexão ${network} desconectada, tentando reconectar...`);
-        try {
-          await this.attemptReconnect(network);
-          existing.lastUsed = Date.now();
-          return existing.client;
-        } catch (error) {
-          console.error(`[XRPL Pool] Falha ao reconectar ${network}, criando nova conexão:`, error);
-          // Remove conexão desconectada
+      // IMPORTANTE: isConnected() pode retornar true mesmo se a conexão foi perdida
+      // Vamos fazer uma verificação mais robusta
+      try {
+        if (existing.client.isConnected()) {
+          // Verificar se a conexão não está muito antiga (mais de 5 minutos sem uso)
+          const timeSinceLastUse = Date.now() - existing.lastUsed;
+          if (timeSinceLastUse > this.MAX_IDLE_TIME) {
+            // Conexão muito antiga, criar nova
+            console.log(`[XRPL Pool] Conexão ${network} muito antiga (${Math.floor(timeSinceLastUse / 1000)}s), criando nova...`);
+            try {
+              await existing.client.disconnect();
+            } catch {
+              // Ignora erro ao desconectar
+            }
+            this.connections.delete(network);
+          } else {
+            // Conexão parece válida, usar
+            existing.lastUsed = Date.now();
+            return existing.client;
+          }
+        } else {
+          // Não está conectado, remover e criar nova
+          console.log(`[XRPL Pool] Conexão ${network} não está conectada, removendo...`);
           this.connections.delete(network);
         }
+      } catch (error) {
+        // Se isConnected() lançar erro, a conexão está morta
+        console.log(`[XRPL Pool] Conexão ${network} inválida (erro ao verificar), removendo...`);
+        try {
+          await existing.client.disconnect();
+        } catch {
+          // Ignora erro ao desconectar
+        }
+        this.connections.delete(network);
       }
     }
 
-    // Cria nova conexão
+    // Cria nova conexão (não tenta reconectar - cria nova instância)
     const connectPromise = this.createConnection(network);
     this.connecting.set(network, connectPromise);
 
@@ -90,10 +109,28 @@ export class XRPLConnectionPool {
     this.setupConnectionListeners(client, network);
 
     try {
-      await client.connect();
+      // Conectar com timeout
+      await Promise.race([
+        client.connect(),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Timeout ao conectar com XRPL')), 10000)
+        )
+      ]);
+      
+      // Verificar se realmente está conectado após conectar
+      if (!client.isConnected()) {
+        throw new Error('Falha ao estabelecer conexão com XRPL');
+      }
+      
       return client;
     } catch (error) {
       console.error(`[XRPL Pool] Erro ao conectar ${network}:`, error);
+      // Tentar desconectar se falhou para limpar recursos
+      try {
+        await client.disconnect();
+      } catch {
+        // Ignora erro ao desconectar
+      }
       throw error;
     }
   }
@@ -131,24 +168,39 @@ export class XRPLConnectionPool {
   private async attemptReconnect(network: XRPLNetwork): Promise<void> {
     const state = this.connections.get(network);
     if (!state) {
-      // Se não existe estado, criar nova conexão
+      // Se não existe estado, não há nada para reconectar
       return;
     }
 
     try {
-      // Se já está conectado, não precisa reconectar
+      // IMPORTANTE: Segundo a documentação do xrpl.js, não é recomendado
+      // tentar reconectar um client desconectado. É melhor criar um novo.
+      // Mas vamos tentar uma vez antes de descartar
       if (state.client.isConnected()) {
         state.reconnectAttempts = 0;
         return;
       }
 
-      // Tentar reconectar
-      await state.client.connect();
+      // Tentar reconectar com timeout
+      await Promise.race([
+        state.client.connect(),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Timeout ao reconectar')), 5000)
+        )
+      ]);
+      
+      // Verificar se realmente reconectou
+      if (!state.client.isConnected()) {
+        throw new Error('Reconexão falhou - conexão não estabelecida');
+      }
+      
       state.reconnectAttempts = 0;
       state.lastUsed = Date.now();
       console.log(`[XRPL Pool] Reconectado com sucesso ${network}`);
     } catch (error) {
       console.error(`[XRPL Pool] Erro ao reconectar ${network}:`, error);
+      // Se falhou, remove a conexão para forçar criação de nova na próxima vez
+      this.connections.delete(network);
       throw error;
     }
   }

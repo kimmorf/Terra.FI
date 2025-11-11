@@ -5,7 +5,7 @@ declare module 'xrpl' {
     disconnect(): Promise<void>;
     request<T = any>(options: Record<string, unknown>): Promise<{ result: T }>;
     autofill(tx: any): Promise<any>;
-    submitAndWait(tx: any, options?: any): Promise<any>;
+    submitAndWait(txBlob: string, options?: { timeoutMs?: number }): Promise<{ result: any }>;
     isConnected(): boolean;
   }
   

@@ -27,13 +27,23 @@ export class ReliableSubmission {
       async () => {
         const client = await xrplPool.getClient(this.network);
         
-        // Usa submitAndWait do XRPL se disponível
-        if (typeof (client as any).submitAndWait === 'function') {
-          const response = await (client as any).submitAndWait(txBlob);
-          return response.result;
+        // xrpl.js v4+ tem submitAndWait que aguarda validação automaticamente
+        // Segundo a documentação: https://js.xrpl.org/
+        try {
+          // Tenta usar submitAndWait do xrpl.js (método recomendado)
+          if (typeof (client as any).submitAndWait === 'function') {
+            const response = await (client as any).submitAndWait(txBlob, {
+              timeoutMs: maxMs,
+            });
+            // submitAndWait retorna { result: { ... } }
+            return response.result || response;
+          }
+        } catch (error: any) {
+          // Se submitAndWait falhar, usa fallback manual
+          console.warn('[ReliableSubmission] submitAndWait não disponível, usando fallback:', error.message);
         }
 
-        // Fallback: submit manual e aguarda
+        // Fallback: submit manual e aguarda validação
         const response = await client.request({
           command: 'submit',
           tx_blob: txBlob,
@@ -44,7 +54,10 @@ export class ReliableSubmission {
           // Aguarda validação
           const txHash = response.result.tx_json?.hash;
           if (txHash) {
-            return await this.waitForValidation(txHash, maxMs - (Date.now() - start));
+            const remainingTime = maxMs - (Date.now() - start);
+            if (remainingTime > 0) {
+              return await this.waitForValidation(txHash, remainingTime);
+            }
           }
         }
 

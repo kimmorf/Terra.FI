@@ -18,11 +18,13 @@ import {
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { BackgroundParticles } from '@/components/BackgroundParticles';
 import { useCrossmarkContext } from '@/lib/crossmark/CrossmarkProvider';
-import { trustSetToken, sendMPToken, authorizeMPToken, extractTransactionHash } from '@/lib/crossmark/transactions';
+import { trustSetToken, trustSetTokenWithSeed, sendMPToken, authorizeMPToken, extractTransactionHash } from '@/lib/crossmark/transactions';
 import { registerAction } from '@/lib/elysia-client';
 import { STABLECOINS, findStablecoin } from '@/lib/tokens/stablecoins';
 import { TOKEN_PRESETS, type TokenPreset } from '@/lib/tokens/presets';
 import { hasTrustLine, getAccountBalance } from '@/lib/xrpl/mpt';
+import { createOffer, cancelOffer, getAccountOffers, getBookOffers, formatOffer, type Offer, type BookOffer } from '@/lib/xrpl/dex';
+import { xrpToDrops } from '@/lib/utils/xrp-converter';
 
 function formatAddress(address: string) {
     return `${address.slice(0, 8)}...${address.slice(-8)}`;
@@ -60,8 +62,20 @@ export default function TradeTokensPage() {
     const [purchaseError, setPurchaseError] = useState<string | null>(null);
 
     const [sellAmount, setSellAmount] = useState('50');
+    const [sellPrice, setSellPrice] = useState('1.0'); // Preço em stablecoin por token
     const [sellMessage, setSellMessage] = useState<string | null>(null);
     const [sellError, setSellError] = useState<string | null>(null);
+
+    const [buyAmount, setBuyAmount] = useState('100');
+    const [buyPrice, setBuyPrice] = useState('1.0'); // Preço em stablecoin por token
+    const [buyMessage, setBuyMessage] = useState<string | null>(null);
+    const [buyError, setBuyError] = useState<string | null>(null);
+
+    const [myOffers, setMyOffers] = useState<Offer[]>([]);
+    const [loadingOffers, setLoadingOffers] = useState(false);
+    const [bookOffers, setBookOffers] = useState<BookOffer[]>([]);
+    const [loadingBook, setLoadingBook] = useState(false);
+    const [showDEX, setShowDEX] = useState(true); // Toggle entre DEX e pagamento direto
 
     const [authorized, setAuthorized] = useState(false);
     const [issuerAddress, setIssuerAddress] = useState<string>(
@@ -75,31 +89,88 @@ export default function TradeTokensPage() {
         let cancelled = false;
         async function loadStatus() {
             if (!account || !selectedStable) {
-                setTrustlineStatus('unknown');
-                setBalance('0');
+                if (!cancelled) {
+                    setTrustlineStatus('unknown');
+                    setBalance('0');
+                }
                 return;
             }
+            
+            // Validar account.address - deve ser string não vazia, começar com 'r' e ter pelo menos 25 caracteres
+            const accountAddress = account?.address?.trim();
+            if (!accountAddress || 
+                typeof accountAddress !== 'string' || 
+                accountAddress.length < 25 || 
+                !accountAddress.startsWith('r')) {
+                console.warn('[Trade] Endereço de conta inválido:', accountAddress);
+                if (!cancelled) {
+                    setTrustlineStatus('unknown');
+                    setBalance('0');
+                }
+                return;
+            }
+            
+            // Validar selectedStable - deve ter currency e issuer válidos
+            const currency = selectedStable?.currency?.trim();
+            const issuer = selectedStable?.issuer?.trim();
+            
+            if (!currency || !issuer) {
+                console.warn('[Trade] Currency ou Issuer inválido:', { currency, issuer });
+                if (!cancelled) {
+                    setTrustlineStatus('unknown');
+                    setBalance('0');
+                }
+                return;
+            }
+            
+            // Validar issuer - deve ser endereço XRPL válido
+            if (issuer.length < 25 || !issuer.startsWith('r')) {
+                console.warn('[Trade] Issuer inválido:', issuer);
+                if (!cancelled) {
+                    setTrustlineStatus('unknown');
+                    setBalance('0');
+                }
+                return;
+            }
+            
+            // Validar network
+            const network = (account.network && 
+                           (account.network === 'testnet' || account.network === 'mainnet' || account.network === 'devnet'))
+                          ? account.network 
+                          : 'testnet';
+            
             try {
                 const hasLine = await hasTrustLine({
-                    account: account.address,
-                    currency: selectedStable.currency,
-                    issuer: selectedStable.issuer,
-                    network: account.network,
+                    account: accountAddress,
+                    currency: currency,
+                    issuer: issuer,
+                    network: network,
                 });
                 if (!cancelled) {
                     setTrustlineStatus(hasLine ? 'ok' : 'missing');
                 }
 
                 const bal = await getAccountBalance({
-                    account: account.address,
-                    currency: selectedStable.currency,
-                    issuer: selectedStable.issuer,
-                    network: account.network,
+                    account: accountAddress,
+                    currency: currency,
+                    issuer: issuer,
+                    network: network,
                 });
                 if (!cancelled) {
                     setBalance(bal);
                 }
-            } catch (error) {
+            } catch (error: any) {
+                // Ignorar erros de "Account malformed" - pode ser que a conta ainda não existe na rede
+                if (error?.message?.includes('Account malformed') || 
+                    error?.message?.includes('actNotFound') ||
+                    error?.name === 'RippledError') {
+                    console.warn('[Trade] Conta pode não existir ainda ou endereço inválido:', error.message);
+                    if (!cancelled) {
+                        setTrustlineStatus('unknown');
+                        setBalance('0');
+                    }
+                    return;
+                }
                 console.warn('[Trade] Falha ao verificar trustline/balance', error);
                 if (!cancelled) {
                     setTrustlineStatus('unknown');
@@ -214,6 +285,8 @@ export default function TradeTokensPage() {
     const handleCreateTrustline = useCallback(async () => {
         if (!account || !selectedStable) return;
         setIsSubmitting(true);
+        setPurchaseError(null);
+        setPurchaseMessage(null);
         try {
             const response = await trustSetToken({
                 account: account.address,
@@ -233,9 +306,29 @@ export default function TradeTokensPage() {
                 txHash: hash ?? 'trustline',
                 metadata: { limit: '1000000' },
             });
-        } catch (error) {
+        } catch (error: any) {
             console.error('Erro ao criar trustline:', error);
-            setPurchaseError(error instanceof Error ? error.message : 'Falha ao criar trustline');
+            const errorMessage = error?.message || 'Falha ao criar trustline';
+            
+            // Detectar se é erro de TrustSet não suportado pela Crossmark
+            const isTrustSetNotSupported = 
+                errorMessage.includes('TrustSet') && 
+                (errorMessage.includes('não suporta') || 
+                 errorMessage.includes('does not have') ||
+                 errorMessage.includes('TransactionType'));
+            
+            if (isTrustSetNotSupported) {
+                // Mensagem mais clara com alternativas
+                setPurchaseError(
+                    `A extensão Crossmark não suporta criação de trustlines (TrustSet).\n\n` +
+                    `Alternativas:\n` +
+                    `• Use xumm.app ou xrptoolkit.com para criar a trustline\n` +
+                    `• Ou aguarde uma atualização da Crossmark\n\n` +
+                    `Token: ${selectedStable.currency} (${selectedStable.name})`
+                );
+            } else {
+                setPurchaseError(errorMessage);
+            }
         } finally {
             setIsSubmitting(false);
         }
@@ -311,6 +404,22 @@ export default function TradeTokensPage() {
                 errorMessage = error.message;
             } else if (typeof error === 'string') {
                 errorMessage = error;
+            }
+            
+            // Detectar se é erro de TrustSet não suportado pela Crossmark
+            const isTrustSetNotSupported = 
+                errorMessage.includes('TrustSet') && 
+                (errorMessage.includes('não suporta') || 
+                 errorMessage.includes('does not have') ||
+                 errorMessage.includes('TransactionType'));
+            
+            if (isTrustSetNotSupported) {
+                errorMessage = 
+                    `A extensão Crossmark não suporta criação de trustlines (TrustSet).\n\n` +
+                    `Alternativas:\n` +
+                    `• Use xumm.app ou xrptoolkit.com para criar a trustline\n` +
+                    `• Ou aguarde uma atualização da Crossmark\n\n` +
+                    `Token: ${project.currency}`;
             } else if (error?.message) {
                 errorMessage = error.message;
             } else if (error?.data?.result?.engine_result_message) {
@@ -337,6 +446,43 @@ export default function TradeTokensPage() {
             setIsSubmitting(false);
         }
     }, [account, selectedProject, issuerAddress]);
+
+    const loadMyOffers = useCallback(async () => {
+        if (!account) return;
+        setLoadingOffers(true);
+        try {
+            const offers = await getAccountOffers(account.address, account.network);
+            setMyOffers(offers);
+        } catch (error) {
+            console.error('Erro ao carregar ofertas:', error);
+        } finally {
+            setLoadingOffers(false);
+        }
+    }, [account]);
+
+    const loadBookOffers = useCallback(async () => {
+        if (!account || !selectedProject) return;
+        setLoadingBook(true);
+        try {
+            const resolvedIssuer = (issuerAddress && issuerAddress.trim()) || selectedProject.issuerAddress?.trim() || '';
+            if (!resolvedIssuer) return;
+
+            const takerGets = {
+                currency: selectedProject.currency,
+                issuer: resolvedIssuer,
+            };
+            const takerPays = selectedStable 
+                ? { currency: selectedStable.currency, issuer: selectedStable.issuer }
+                : 'XRP';
+
+            const offers = await getBookOffers(takerGets, takerPays, account.network, 20);
+            setBookOffers(offers);
+        } catch (error) {
+            console.error('Erro ao carregar book de ofertas:', error);
+        } finally {
+            setLoadingBook(false);
+        }
+    }, [account, selectedProject, selectedStable, issuerAddress]);
 
     const handleAuthorizeInvestor = useCallback(async () => {
         const currentAccount = account;
@@ -405,32 +551,75 @@ export default function TradeTokensPage() {
         setPurchaseMessage(null);
 
         try {
-            const response = await sendMPToken({
-                sender: currentAccount.address,
-                destination: resolvedIssuer,
-                amount: purchaseAmount,
-                currency: selectedStable.currency,
-                issuer: selectedStable.issuer,
-                memo: `Compra ${project.label}`,
-            });
-            const hash = extractTransactionHash(response);
+            if (showDEX) {
+                // Usar DEX: criar oferta de compra
+                // TakerGets: token que queremos receber
+                // TakerPays: stablecoin que vamos pagar
+                const takerGets = {
+                    currency: project.currency,
+                    issuer: resolvedIssuer,
+                    value: purchaseAmount,
+                };
+                const takerPays = {
+                    currency: selectedStable.currency,
+                    issuer: selectedStable.issuer,
+                    value: (parseFloat(purchaseAmount) * parseFloat(buyPrice)).toFixed(6),
+                };
 
-            await registerAction({
-                type: 'payment',
-                token: { currency: selectedStable.currency, issuer: selectedStable.issuer },
-                actor: currentAccount.address,
-                target: resolvedIssuer,
-                amount: purchaseAmount,
-                network: currentAccount.network,
-                txHash: hash ?? 'payment',
-                metadata: { project: project.id },
-            });
+                const hash = await createOffer({
+                    account: currentAccount.address,
+                    takerGets,
+                    takerPays,
+                    network: currentAccount.network,
+                });
 
-            setPurchaseMessage('Pagamento enviado. Aguarde o recebimento do token pelo emissor.');
+                await registerAction({
+                    type: 'dex_offer',
+                    token: { currency: project.currency, issuer: resolvedIssuer },
+                    actor: currentAccount.address,
+                    network: currentAccount.network,
+                    txHash: hash,
+                    metadata: { 
+                        project: project.id,
+                        type: 'buy',
+                        amount: purchaseAmount,
+                        price: buyPrice,
+                    },
+                });
+
+                setPurchaseMessage(`Oferta de compra criada no DEX! Hash: ${hash.slice(0, 8)}...`);
+                // Recarregar ofertas
+                loadMyOffers();
+                loadBookOffers();
+            } else {
+                // Pagamento direto (modo legado)
+                const response = await sendMPToken({
+                    sender: currentAccount.address,
+                    destination: resolvedIssuer,
+                    amount: purchaseAmount,
+                    currency: selectedStable.currency,
+                    issuer: selectedStable.issuer,
+                    memo: `Compra ${project.label}`,
+                });
+                const hash = extractTransactionHash(response);
+
+                await registerAction({
+                    type: 'payment',
+                    token: { currency: selectedStable.currency, issuer: selectedStable.issuer },
+                    actor: currentAccount.address,
+                    target: resolvedIssuer,
+                    amount: purchaseAmount,
+                    network: currentAccount.network,
+                    txHash: hash ?? 'payment',
+                    metadata: { project: project.id },
+                });
+
+                setPurchaseMessage('Pagamento enviado. Aguarde o recebimento do token pelo emissor.');
+            }
             refreshAccount();
         } catch (error) {
             console.error('Erro ao comprar token:', error);
-            setPurchaseError(error instanceof Error ? error.message : 'Falha ao executar pagamento.');
+            setPurchaseError(error instanceof Error ? error.message : 'Falha ao executar operação.');
         } finally {
             setIsSubmitting(false);
         }
@@ -439,10 +628,14 @@ export default function TradeTokensPage() {
         selectedStable,
         selectedProject,
         purchaseAmount,
+        buyPrice,
         trustlineStatus,
         mptTrustlineStatus,
         refreshAccount,
         issuerAddress,
+        showDEX,
+        loadMyOffers,
+        loadBookOffers,
     ]);
 
     const handleSell = useCallback(async () => {
@@ -450,6 +643,11 @@ export default function TradeTokensPage() {
         const project = selectedProject;
 
         if (!currentAccount || !selectedStable || !project) return;
+
+        if (mptTrustlineStatus !== 'ok') {
+            setSellError('Crie a trustline do token antes de vender.');
+            return;
+        }
 
         const resolvedIssuer =
             (issuerAddress && issuerAddress.trim()) || project.issuerAddress?.trim() || '';
@@ -463,28 +661,71 @@ export default function TradeTokensPage() {
         setSellMessage(null);
 
         try {
-            const response = await sendMPToken({
-                sender: currentAccount.address,
-                destination: resolvedIssuer,
-                amount: sellAmount,
-                currency: project.currency,
-                issuer: resolvedIssuer,
-                memo: 'Venda MPT',
-            });
-            const hash = extractTransactionHash(response);
+            if (showDEX) {
+                // Usar DEX: criar oferta de venda
+                // TakerGets: stablecoin que queremos receber
+                // TakerPays: token que vamos vender
+                const takerGets = {
+                    currency: selectedStable.currency,
+                    issuer: selectedStable.issuer,
+                    value: (parseFloat(sellAmount) * parseFloat(sellPrice)).toFixed(6),
+                };
+                const takerPays = {
+                    currency: project.currency,
+                    issuer: resolvedIssuer,
+                    value: sellAmount,
+                };
 
-            await registerAction({
-                type: 'payment',
-                token: { currency: project.currency, issuer: resolvedIssuer },
-                actor: currentAccount.address,
-                target: resolvedIssuer,
-                amount: sellAmount,
-                network: currentAccount.network,
-                txHash: hash ?? 'sell',
-                metadata: { project: project.id, action: 'sell' },
-            });
+                const hash = await createOffer({
+                    account: currentAccount.address,
+                    takerGets,
+                    takerPays,
+                    network: currentAccount.network,
+                });
 
-            setSellMessage('Token enviado ao emissor. Liquidação será processada manualmente.');
+                await registerAction({
+                    type: 'dex_offer',
+                    token: { currency: project.currency, issuer: resolvedIssuer },
+                    actor: currentAccount.address,
+                    network: currentAccount.network,
+                    txHash: hash,
+                    metadata: { 
+                        project: project.id,
+                        type: 'sell',
+                        amount: sellAmount,
+                        price: sellPrice,
+                    },
+                });
+
+                setSellMessage(`Oferta de venda criada no DEX! Hash: ${hash.slice(0, 8)}...`);
+                // Recarregar ofertas
+                loadMyOffers();
+                loadBookOffers();
+            } else {
+                // Pagamento direto (modo legado)
+                const response = await sendMPToken({
+                    sender: currentAccount.address,
+                    destination: resolvedIssuer,
+                    amount: sellAmount,
+                    currency: project.currency,
+                    issuer: resolvedIssuer,
+                    memo: 'Venda MPT',
+                });
+                const hash = extractTransactionHash(response);
+
+                await registerAction({
+                    type: 'payment',
+                    token: { currency: project.currency, issuer: resolvedIssuer },
+                    actor: currentAccount.address,
+                    target: resolvedIssuer,
+                    amount: sellAmount,
+                    network: currentAccount.network,
+                    txHash: hash ?? 'sell',
+                    metadata: { project: project.id, action: 'sell' },
+                });
+
+                setSellMessage('Token enviado ao emissor. Liquidação será processada manualmente.');
+            }
             refreshAccount();
         } catch (error) {
             console.error('Erro ao vender token:', error);
@@ -492,7 +733,31 @@ export default function TradeTokensPage() {
         } finally {
             setIsSubmitting(false);
         }
-    }, [account, selectedStable, selectedProject, sellAmount, refreshAccount, issuerAddress]);
+    }, [account, selectedStable, selectedProject, sellAmount, sellPrice, mptTrustlineStatus, refreshAccount, issuerAddress, showDEX, loadMyOffers, loadBookOffers]);
+
+    const handleCancelOffer = useCallback(async (sequence: number) => {
+        if (!account) return;
+        setIsSubmitting(true);
+        try {
+            const hash = await cancelOffer(account.address, sequence, account.network);
+            setSellMessage(`Oferta cancelada! Hash: ${hash.slice(0, 8)}...`);
+            await loadMyOffers();
+            await loadBookOffers();
+        } catch (error) {
+            console.error('Erro ao cancelar oferta:', error);
+            setSellError(error instanceof Error ? error.message : 'Falha ao cancelar oferta.');
+        } finally {
+            setIsSubmitting(false);
+        }
+    }, [account, loadMyOffers, loadBookOffers]);
+
+    // Carregar ofertas quando conectar ou mudar token
+    useEffect(() => {
+        if (account && showDEX) {
+            loadMyOffers();
+            loadBookOffers();
+        }
+    }, [account, selectedProject, issuerAddress, selectedStable, showDEX, loadMyOffers, loadBookOffers]);
 
     return (
         <main className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-100 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 transition-colors duration-300 relative overflow-hidden">
@@ -744,15 +1009,28 @@ export default function TradeTokensPage() {
                     className="max-w-6xl mx-auto mt-10 grid grid-cols-1 lg:grid-cols-2 gap-6"
                 >
                     <div className="bg-white dark:bg-gray-900/70 border border-gray-200 dark:border-gray-800 rounded-3xl shadow-lg p-6 space-y-4">
-                        <h3 className="text-xl font-semibold text-gray-800 dark:text-white flex items-center gap-2">
-                            <DollarSign className="w-5 h-5" /> Comprar tokens
-                        </h3>
+                        <div className="flex items-center justify-between">
+                            <h3 className="text-xl font-semibold text-gray-800 dark:text-white flex items-center gap-2">
+                                <DollarSign className="w-5 h-5" /> Comprar tokens
+                            </h3>
+                            <label className="flex items-center gap-2 text-sm">
+                                <input
+                                    type="checkbox"
+                                    checked={showDEX}
+                                    onChange={(e) => setShowDEX(e.target.checked)}
+                                    className="rounded"
+                                />
+                                <span className="text-gray-600 dark:text-gray-400">Usar DEX</span>
+                            </label>
+                        </div>
                         <p className="text-sm text-gray-600 dark:text-gray-400">
-                            Envie {selectedStable?.currency} para o emissor e receba o token Terra.FI correspondente.
+                            {showDEX 
+                                ? `Crie uma oferta de compra no DEX. A oferta será executada automaticamente quando alguém aceitar.`
+                                : `Envie ${selectedStable?.currency} para o emissor e receba o token Terra.FI correspondente.`}
                         </p>
                         <div className="space-y-2">
                             <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-                                Quantidade ({selectedStable?.currency})
+                                Quantidade de tokens
                             </label>
                             <input
                                 value={purchaseAmount}
@@ -761,12 +1039,28 @@ export default function TradeTokensPage() {
                                 className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
                             />
                         </div>
+                        {showDEX && (
+                            <div className="space-y-2">
+                                <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                                    Preço por token ({selectedStable?.currency})
+                                </label>
+                                <input
+                                    value={buyPrice}
+                                    onChange={(event) => setBuyPrice(event.target.value)}
+                                    placeholder="1.0"
+                                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                                />
+                                <p className="text-xs text-gray-500 dark:text-gray-400">
+                                    Total: {(parseFloat(purchaseAmount || '0') * parseFloat(buyPrice || '0')).toFixed(6)} {selectedStable?.currency}
+                                </p>
+                            </div>
+                        )}
                         <button
                             onClick={handlePurchase}
                             disabled={isSubmitting || !isConnected}
                             className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold shadow disabled:opacity-60"
                         >
-                            Enviar pagamento
+                            {showDEX ? 'Criar oferta de compra' : 'Enviar pagamento'}
                         </button>
                         {purchaseMessage && (
                             <div className="flex items-start gap-2 text-sm text-green-600 dark:text-green-400">
@@ -785,7 +1079,9 @@ export default function TradeTokensPage() {
                             <DollarSign className="w-5 h-5" /> Vender tokens
                         </h3>
                         <p className="text-sm text-gray-600 dark:text-gray-400">
-                            Envie MPTs de volta ao emissor para liquidação manual. Use para amortizações ou saída de posição.
+                            {showDEX
+                                ? `Crie uma oferta de venda no DEX. A oferta será executada automaticamente quando alguém aceitar.`
+                                : `Envie MPTs de volta ao emissor para liquidação manual. Use para amortizações ou saída de posição.`}
                         </p>
                         <div className="space-y-2">
                             <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">
@@ -798,12 +1094,28 @@ export default function TradeTokensPage() {
                                 className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
                             />
                         </div>
+                        {showDEX && (
+                            <div className="space-y-2">
+                                <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                                    Preço por token ({selectedStable?.currency})
+                                </label>
+                                <input
+                                    value={sellPrice}
+                                    onChange={(event) => setSellPrice(event.target.value)}
+                                    placeholder="1.0"
+                                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                                />
+                                <p className="text-xs text-gray-500 dark:text-gray-400">
+                                    Total: {(parseFloat(sellAmount || '0') * parseFloat(sellPrice || '0')).toFixed(6)} {selectedStable?.currency}
+                                </p>
+                            </div>
+                        )}
                         <button
                             onClick={handleSell}
                             disabled={isSubmitting || !isConnected}
                             className="px-5 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-semibold shadow disabled:opacity-60"
                         >
-                            Enviar token ao emissor
+                            {showDEX ? 'Criar oferta de venda' : 'Enviar token ao emissor'}
                         </button>
                         {sellMessage && (
                             <div className="flex items-start gap-2 text-sm text-green-600 dark:text-green-400">

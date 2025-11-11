@@ -1,50 +1,110 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { SendMPTSchema } from '@/lib/mpt/dto/send-mpt.dto';
-import { MptService } from '@/lib/mpt/mpt.service';
-import { auth } from '@/lib/auth';
+import { sendMPT } from '@/lib/xrpl/mpt-helpers';
 
-export const dynamic = 'force-dynamic';
-
+/**
+ * API Route para enviar MPT
+ * 
+ * POST /api/mpt/send
+ * 
+ * Body:
+ * {
+ *   fromAddress: string,
+ *   fromSeed: string,
+ *   toAddress: string,
+ *   mptokenIssuanceID: string,
+ *   amount: string,
+ *   memo?: string,
+ *   network?: string
+ * }
+ */
 export async function POST(request: NextRequest) {
   try {
-    // Verificar autenticação
-    const session = await auth.api.getSession({
-      headers: request.headers,
-    });
-
-    if (!session?.user) {
-      return NextResponse.json(
-        { error: 'Não autenticado' },
-        { status: 401 }
-      );
-    }
-
     const body = await request.json();
-    const dto = SendMPTSchema.parse(body);
+    const {
+      fromAddress,
+      fromSeed,
+      toAddress,
+      mptokenIssuanceID,
+      amount,
+      memo,
+      network = 'testnet'
+    } = body;
 
-    // Determinar rede
-    const network = (body.network as 'testnet' | 'mainnet' | 'devnet') || 'testnet';
-
-    const service = new MptService(undefined, network);
-    
-    // Se senderSeed vier no body, assina no backend
-    // Caso contrário, espera txBlob assinado do frontend
-    const senderSeed = body.senderSeed as string | undefined;
-    const result = await service.send(dto, senderSeed);
-
-    return NextResponse.json(result);
-  } catch (error: any) {
-    console.error('[MPT Send] Erro:', error);
-
-    if (error.name === 'ZodError') {
+    // Validações básicas
+    if (!fromAddress || typeof fromAddress !== 'string') {
       return NextResponse.json(
-        { error: 'Dados inválidos', details: error.errors },
+        { error: 'fromAddress é obrigatório e deve ser uma string' },
         { status: 400 }
       );
     }
 
+    if (!fromSeed || typeof fromSeed !== 'string') {
+      return NextResponse.json(
+        { error: 'fromSeed é obrigatório para enviar MPT' },
+        { status: 400 }
+      );
+    }
+
+    if (!toAddress || typeof toAddress !== 'string') {
+      return NextResponse.json(
+        { error: 'toAddress é obrigatório e deve ser uma string' },
+        { status: 400 }
+      );
+    }
+
+    if (!mptokenIssuanceID || typeof mptokenIssuanceID !== 'string') {
+      return NextResponse.json(
+        { error: 'mptokenIssuanceID é obrigatório' },
+        { status: 400 }
+      );
+    }
+
+    if (!amount || typeof amount !== 'string') {
+      return NextResponse.json(
+        { error: 'amount é obrigatório e deve ser uma string' },
+        { status: 400 }
+      );
+    }
+
+    if (!fromAddress.startsWith('r') || fromAddress.length < 25) {
+      return NextResponse.json(
+        { error: 'fromAddress inválido (deve começar com "r")' },
+        { status: 400 }
+      );
+    }
+
+    if (!toAddress.startsWith('r') || toAddress.length < 25) {
+      return NextResponse.json(
+        { error: 'toAddress inválido (deve começar com "r")' },
+        { status: 400 }
+      );
+    }
+
+    // Enviar MPT
+    const txHash = await sendMPT({
+      fromAddress,
+      fromSeed,
+      toAddress,
+      mptokenIssuanceID,
+      amount,
+      memo,
+      network
+    });
+
+    return NextResponse.json({
+      success: true,
+      txHash,
+      from: fromAddress,
+      to: toAddress,
+      amount
+    });
+  } catch (error: any) {
+    console.error('[API MPT Send] Erro:', error);
     return NextResponse.json(
-      { error: error.message || 'Erro ao enviar MPT' },
+      {
+        error: error.message || 'Erro ao enviar MPT',
+        details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      },
       { status: 500 }
     );
   }

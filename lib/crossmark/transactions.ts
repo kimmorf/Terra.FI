@@ -545,13 +545,107 @@ export async function signAndSubmitTransaction(
     });
   }
 
-  try {
-    const response = await sdk.async.signAndSubmitAndWait({
-      tx_json: txJson,
-      autofill: true,
-      failHard: true,
-      timeout: options?.timeout ?? 60000,
+  // Validar que a transação tem todos os campos necessários antes de enviar
+  const requiredFields = ['TransactionType', 'Account'];
+  for (const field of requiredFields) {
+    if (!txJson[field]) {
+      throw new Error(`Campo obrigatório ausente na transação: ${field}`);
+    }
+  }
+
+  // Criar uma cópia limpa e validada da transação
+  // Garantir que TransactionType está no nível correto
+  const cleanTxJson: Record<string, unknown> = {
+    TransactionType: txJson.TransactionType,
+    Account: txJson.Account,
+  };
+
+  // Copiar todos os outros campos (exceto TransactionType e Account que já foram copiados)
+  for (const key in txJson) {
+    if (key !== 'TransactionType' && key !== 'Account' && txJson.hasOwnProperty(key)) {
+      cleanTxJson[key] = txJson[key];
+    }
+  }
+
+  // Log final da transação limpa
+  if (process.env.NODE_ENV === 'development') {
+    console.log('[Crossmark] Transação limpa a ser enviada:', {
+      TransactionType: cleanTxJson.TransactionType,
+      Account: cleanTxJson.Account,
+      keys: Object.keys(cleanTxJson),
+      fullTx: JSON.stringify(cleanTxJson, null, 2),
     });
+  }
+
+  // Verificação final: garantir que cleanTxJson tem TransactionType
+  if (!cleanTxJson.TransactionType) {
+    console.error('[Crossmark] ERRO CRÍTICO: cleanTxJson não tem TransactionType:', {
+      cleanTxJson,
+      originalTransaction: transaction,
+      txJson,
+    });
+    throw new Error('Erro interno: TransactionType foi perdido durante a limpeza da transação');
+  }
+
+  try {
+    // Log final antes de enviar (sempre, não apenas em dev, para debug de produção)
+    console.log('[Crossmark] Enviando para SDK:', {
+      hasTransactionType: !!cleanTxJson.TransactionType,
+      transactionType: cleanTxJson.TransactionType,
+      account: cleanTxJson.Account,
+      allKeys: Object.keys(cleanTxJson),
+    });
+
+    // A Crossmark pode esperar a transação em diferentes formatos
+    // Baseado no erro "Object does not have a `TransactionType`", 
+    // parece que a Crossmark está processando internamente de forma incorreta
+    // O erro sugere que a Crossmark pode não suportar TrustSet ainda, ou há um bug
+    
+    let response;
+    const transactionType = cleanTxJson.TransactionType as string;
+    
+    // Para TrustSet, a Crossmark pode ter problemas específicos
+    // Vamos tentar diferentes formatos
+    if (transactionType === 'TrustSet') {
+      console.log('[Crossmark] TrustSet detectado, tentando formatos alternativos...');
+      
+      // Tentativa 1: Formato padrão (o que já estávamos usando)
+      try {
+        response = await sdk.async.signAndSubmitAndWait({
+          tx_json: cleanTxJson,
+          autofill: true,
+          failHard: true,
+          timeout: options?.timeout ?? 60000,
+        });
+      } catch (firstError: any) {
+        // O erro pode vir como exceção ou na resposta
+        const errorMsg = firstError?.message || '';
+        const responseData = firstError?.response?.data || firstError?.data || firstError?.response || {};
+        const errorMessage = responseData?.errorMessage || errorMsg;
+        
+        // Se o erro menciona TransactionType, pode ser que a Crossmark não suporte TrustSet
+        if (errorMessage.includes('TransactionType') || errorMessage.includes('does not have')) {
+          console.warn('[Crossmark] TrustSet pode não ser suportado. Erro:', errorMessage);
+          // Lançar erro mais descritivo
+          throw new Error(
+            `A extensão Crossmark não suporta transações do tipo TrustSet atualmente. ` +
+            `Este é um problema conhecido da extensão Crossmark. ` +
+            `Por favor, use outra carteira (como xumm.app ou xrptoolkit.com) para criar trustlines, ` +
+            `ou aguarde uma atualização da Crossmark que adicione suporte para TrustSet. ` +
+            `Erro original: ${errorMessage}`
+          );
+        }
+        throw firstError;
+      }
+    } else {
+      // Para outros tipos, usar formato padrão
+      response = await sdk.async.signAndSubmitAndWait({
+        tx_json: cleanTxJson,
+        autofill: true,
+        failHard: true,
+        timeout: options?.timeout ?? 60000,
+      });
+    }
 
     if (!response) {
       throw new Error('Não foi possível obter a resposta da Crossmark.');
@@ -583,14 +677,50 @@ export async function signAndSubmitTransaction(
       console.error('[Crossmark] Transação rejeitada ou com erro:', {
         errorMessage: finalErrorMessage,
         meta,
-        transactionType: txJson.TransactionType,
-        account: txJson.Account,
+        transactionType: cleanTxJson.TransactionType,
+        account: cleanTxJson.Account,
+        fullTransaction: JSON.stringify(cleanTxJson, null, 2),
       });
       
       // Se o erro menciona TransactionType, pode ser que o tipo não seja suportado
-      if (finalErrorMessage.includes('TransactionType')) {
+      if (finalErrorMessage.includes('TransactionType') || finalErrorMessage.includes('does not have')) {
+        // Verificar se o erro é sobre TransactionType ausente
+        if (finalErrorMessage.includes('does not have') && finalErrorMessage.includes('TransactionType')) {
+          console.error('[Crossmark] Erro: TransactionType ausente no objeto enviado. Transação original:', {
+            original: JSON.stringify(transaction, null, 2),
+            cleaned: JSON.stringify(cleanTxJson, null, 2),
+          });
+          
+          // Mensagem específica para TrustSet
+          if (cleanTxJson.TransactionType === 'TrustSet') {
+            throw new Error(
+              `A extensão Crossmark não suporta transações do tipo TrustSet atualmente. ` +
+              `Este é um problema conhecido da extensão Crossmark. ` +
+              `Por favor, use outra carteira (como xumm.app ou xrptoolkit.com) para criar trustlines, ` +
+              `ou aguarde uma atualização da Crossmark que adicione suporte para TrustSet.`
+            );
+          }
+          
+          throw new Error(
+            `Erro ao enviar transação: o objeto não contém TransactionType. ` +
+            `Tipo esperado: ${cleanTxJson.TransactionType}. ` +
+            `Verifique se a versão da Crossmark suporta este tipo de transação.`
+          );
+        }
+        
+        // Mensagem específica para TrustSet
+        if (cleanTxJson.TransactionType === 'TrustSet') {
+          throw new Error(
+            `A extensão Crossmark não suporta transações do tipo TrustSet atualmente. ` +
+            `Este é um problema conhecido da extensão Crossmark. ` +
+            `Por favor, use outra carteira (como xumm.app ou xrptoolkit.com) para criar trustlines, ` +
+            `ou aguarde uma atualização da Crossmark que adicione suporte para TrustSet. ` +
+            `Erro original: ${finalErrorMessage}`
+          );
+        }
+        
         throw new Error(
-          `Tipo de transação não suportado ou inválido: ${txJson.TransactionType}. ` +
+          `Tipo de transação não suportado ou inválido: ${cleanTxJson.TransactionType}. ` +
           `O Crossmark pode não suportar este tipo de transação ainda. ` +
           `Erro: ${finalErrorMessage}`
         );
@@ -626,8 +756,9 @@ export async function signAndSubmitTransaction(
       console.error('[Crossmark] Transação falhou:', {
         status,
         errorMessage: statusErrorMessage,
-        transactionType: txJson.TransactionType,
-        account: txJson.Account,
+        transactionType: cleanTxJson.TransactionType,
+        account: cleanTxJson.Account,
+        fullTransaction: JSON.stringify(cleanTxJson, null, 2),
       });
       
       throw new Error(statusErrorMessage || `Transação falhou com código: ${status}`);
@@ -727,8 +858,105 @@ export function sendMPToken(params: MPTPaymentParams) {
   return signAndSubmitTransaction(transaction);
 }
 
-export function trustSetToken(params: TrustSetParams) {
+/**
+ * Cria trustline para um token
+ * 
+ * Tenta usar Crossmark primeiro. Se falhar (Crossmark não suporta TrustSet),
+ * oferece alternativa via API route que requer seed.
+ */
+export async function trustSetToken(params: TrustSetParams) {
   const transaction = buildTrustSetTransaction(params);
-  return signAndSubmitTransaction(transaction);
+  
+  try {
+    // Tentar usar Crossmark primeiro
+    return await signAndSubmitTransaction(transaction);
+  } catch (error: any) {
+    // Se o erro é sobre TrustSet não suportado pela Crossmark
+    const errorMessage = error?.message || '';
+    const isTrustSetNotSupported = 
+      errorMessage.includes('TrustSet') && 
+      (errorMessage.includes('não suporta') || 
+       errorMessage.includes('does not have') ||
+       errorMessage.includes('TransactionType'));
+    
+    if (isTrustSetNotSupported) {
+      // Re-lançar o erro com instruções claras
+      throw new Error(
+        `A extensão Crossmark não suporta transações do tipo TrustSet. ` +
+        `\n\nOpções disponíveis:\n` +
+        `1. Use outra carteira (xumm.app ou xrptoolkit.com) para criar a trustline\n` +
+        `2. Use a função trustSetTokenWithSeed() se você tiver acesso à seed da sua carteira\n` +
+        `3. Aguarde uma atualização da Crossmark que adicione suporte para TrustSet\n\n` +
+        `Erro original: ${errorMessage}`
+      );
+    }
+    
+    // Para outros erros, apenas relançar
+    throw error;
+  }
+}
+
+/**
+ * Cria trustline usando API route (requer seed)
+ * 
+ * ATENÇÃO: Esta função requer a seed/chave privada da carteira.
+ * Use apenas se você tiver controle total sobre a seed e entender os riscos.
+ * 
+ * @param params - Parâmetros da trustline
+ * @param seed - Seed/chave privada da carteira (NUNCA exponha no frontend em produção)
+ */
+export async function trustSetTokenWithSeed(
+  params: TrustSetParams & { seed: string; network?: string }
+) {
+  const { seed, network = 'testnet', ...trustSetParams } = params;
+  
+  if (!seed || typeof seed !== 'string') {
+    throw new Error('Seed é obrigatória para trustSetTokenWithSeed');
+  }
+
+  // Validar que account corresponde à seed
+  let wallet: any;
+  try {
+    const { Wallet } = await import('xrpl');
+    wallet = Wallet.fromSeed(seed);
+    if (wallet.classicAddress !== trustSetParams.account && wallet.address !== trustSetParams.account) {
+      throw new Error('A seed fornecida não corresponde à conta especificada');
+    }
+  } catch (error: any) {
+    throw new Error(`Seed inválida: ${error.message}`);
+  }
+
+  // Chamar API route
+  const response = await fetch('/api/xrpl/trustline', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      account: trustSetParams.account,
+      currency: trustSetParams.currency,
+      issuer: trustSetParams.issuer,
+      limit: trustSetParams.limit || '1000000000',
+      network,
+      seed,
+    }),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.error || 'Erro ao criar trustline via API');
+  }
+
+  return {
+    response: {
+      data: {
+        result: {
+          hash: data.txHash,
+          engine_result: 'tesSUCCESS',
+        },
+      },
+    },
+  };
 }
 

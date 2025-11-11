@@ -23,13 +23,24 @@ export async function hasTrustLine(params: {
 
     const result = await withXRPLRetry(async () => {
         const client = await xrplPool.getClient(network as XRPLNetwork);
-        const response = await client.request({
-            command: 'account_lines',
-            account,
-            peer: issuer,
-            ledger_index: 'validated',
-        });
-        return response.result;
+        try {
+            const response = await client.request({
+                command: 'account_lines',
+                account,
+                peer: issuer,
+                ledger_index: 'validated',
+            });
+            return response.result;
+        } catch (error: any) {
+            // Tratar erro "Account malformed" especificamente
+            if (error?.message?.includes('Account malformed') || 
+                error?.message?.includes('actNotFound') ||
+                error?.name === 'RippledError') {
+                // Retornar resultado vazio ao invés de lançar erro
+                return { lines: [] };
+            }
+            throw error;
+        }
     }, { maxAttempts: 3 });
 
     const hasTrustLine = (result.lines ?? []).some(
@@ -104,13 +115,24 @@ export async function getAccountBalance(params: {
 
     const result = await withXRPLRetry(async () => {
         const client = await xrplPool.getClient(network as XRPLNetwork);
-        const response = await client.request({
-            command: 'account_lines',
-            account,
-            peer: issuer,
-            ledger_index: 'validated',
-        });
-        return response.result;
+        try {
+            const response = await client.request({
+                command: 'account_lines',
+                account,
+                peer: issuer,
+                ledger_index: 'validated',
+            });
+            return response.result;
+        } catch (error: any) {
+            // Tratar erro "Account malformed" especificamente
+            if (error?.message?.includes('Account malformed') || 
+                error?.message?.includes('actNotFound') ||
+                error?.name === 'RippledError') {
+                // Retornar resultado vazio ao invés de lançar erro
+                return { lines: [] };
+            }
+            throw error;
+        }
     }, { maxAttempts: 3 });
 
     const line = (result.lines ?? []).find(
@@ -209,12 +231,21 @@ export async function getIssuedMPTokens(params: {
         try {
             client = await xrplPool.getClient(network as XRPLNetwork);
             
-            // Verificar se o client está conectado
+            // O pool já gerencia a conexão, mas vamos verificar se está realmente conectado
+            // fazendo uma requisição leve antes de fazer a requisição principal
             if (!client.isConnected()) {
-                await client.connect();
+                // Se não está conectado, o pool deveria ter criado uma nova conexão
+                // Mas vamos tentar conectar aqui também como fallback
+                try {
+                    await client.connect();
+                } catch (connectError) {
+                    console.error('[getIssuedMPTokens] Erro ao conectar client:', connectError);
+                    // Se falhar, o pool criará uma nova conexão na próxima tentativa
+                    throw new Error(`Conexão XRPL não disponível: ${connectError instanceof Error ? connectError.message : 'websocket foi fechado'}`);
+                }
             }
         } catch (connectionError: any) {
-            console.error('[getIssuedMPTokens] Erro ao conectar com XRPL:', connectionError);
+            console.error('[getIssuedMPTokens] Erro ao obter client XRPL:', connectionError);
             throw new Error(`Erro ao conectar com a rede XRPL: ${connectionError.message || 'websocket foi fechado'}`);
         }
         
