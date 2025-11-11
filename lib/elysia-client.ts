@@ -14,9 +14,23 @@ interface RegisterIssuancePayload {
     rawResponse?: unknown;
 }
 
-export async function registerIssuance(payload: RegisterIssuancePayload) {
+interface RegisterActionPayload {
+    type: 'authorize' | 'payment' | 'freeze' | 'clawback';
+    token: {
+        currency: string;
+        issuer: string;
+    };
+    actor: string;
+    target?: string;
+    amount?: string;
+    network: string;
+    txHash: string;
+    metadata?: Record<string, unknown>;
+}
+
+async function postToElysia(path: string, payload: unknown) {
     const baseUrl = DEFAULT_BASE_URL.replace(/\/$/, '');
-    const response = await fetch(`${baseUrl}/api/issuances`, {
+    const response = await fetch(`${baseUrl}${path}`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -27,9 +41,17 @@ export async function registerIssuance(payload: RegisterIssuancePayload) {
     if (!response.ok) {
         const message = await response.text();
         throw new Error(
-            `Erro ao registrar emissão no Elysia: ${response.status} ${response.statusText} - ${message}`,
+            `Erro ao comunicar com Elysia (${path}): ${response.status} ${response.statusText} - ${message}`,
         );
     }
 
     return response.json();
+}
+
+export function registerIssuance(payload: RegisterIssuancePayload) {
+    return postToElysia('/api/issuances', payload);
+}
+
+export function registerAction(payload: RegisterActionPayload) {
+    return postToElysia('/api/actions', payload);
 }
