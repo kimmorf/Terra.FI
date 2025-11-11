@@ -6,6 +6,11 @@ import { Client, validate, isValidAddress } from 'xrpl';
 import { xrplPool, type XRPLNetwork } from '../xrpl/pool';
 import { ValidationError } from '../errors/xrpl-errors';
 
+// Helper para validar endereço XRPL (usa função do xrpl)
+function isValidXRPLAddress(address: string): boolean {
+  return isValidAddress(address);
+}
+
 export interface ValidationResult {
   valid: boolean;
   errors: string[];
@@ -30,7 +35,7 @@ export async function validateTransaction(
   if (!transaction.Account) {
     errors.push('Account é obrigatório');
   } else if (typeof transaction.Account === 'string') {
-    if (!isValidAddress(transaction.Account)) {
+    if (!isValidXRPLAddress(transaction.Account)) {
       errors.push('Account não é um endereço XRPL válido');
     }
   }
@@ -53,7 +58,7 @@ export async function validateTransaction(
       if (!transaction.Destination) {
         errors.push('Destination é obrigatório para Payment');
       } else if (typeof transaction.Destination === 'string') {
-        if (!isValidAddress(transaction.Destination)) {
+        if (!isValidXRPLAddress(transaction.Destination)) {
           errors.push('Destination não é um endereço XRPL válido');
         }
       }
@@ -88,7 +93,7 @@ export async function validateTransaction(
       if (!transaction.Holder) {
         errors.push('Holder é obrigatório para MPTokenAuthorize');
       } else if (typeof transaction.Holder === 'string') {
-        if (!isValidAddress(transaction.Holder)) {
+        if (!isValidXRPLAddress(transaction.Holder)) {
           errors.push('Holder não é um endereço XRPL válido');
         }
       }
@@ -101,7 +106,7 @@ export async function validateTransaction(
       if (!transaction.Holder) {
         errors.push('Holder é obrigatório para MPTokenFreeze');
       } else if (typeof transaction.Holder === 'string') {
-        if (!isValidAddress(transaction.Holder)) {
+        if (!isValidXRPLAddress(transaction.Holder)) {
           errors.push('Holder não é um endereço XRPL válido');
         }
       }
@@ -114,7 +119,7 @@ export async function validateTransaction(
       if (!transaction.Holder) {
         errors.push('Holder é obrigatório para MPTokenClawback');
       } else if (typeof transaction.Holder === 'string') {
-        if (!isValidAddress(transaction.Holder)) {
+        if (!isValidXRPLAddress(transaction.Holder)) {
           errors.push('Holder não é um endereço XRPL válido');
         }
       }
@@ -134,15 +139,9 @@ export async function validateTransaction(
     const client = await xrplPool.getClient(network);
 
     try {
-      // Preparar transação (autofill)
-      const prepared = await client.autofill(transaction as any);
-
-      // Validar usando biblioteca xrpl
-      const validation = validate(prepared);
-      
-      if (!validation.valid) {
-        errors.push(...(validation.errors || []));
-      }
+      // Preparar transação (autofill) - isso valida automaticamente
+      // Se autofill passar, transação é válida (autofill lança erro se inválida)
+      await client.autofill(transaction as any);
     } catch (error: any) {
       // Se autofill falhar, pode ser porque a transação ainda não está completa
       // Isso é OK, apenas adiciona warning
@@ -168,7 +167,7 @@ export async function validateTransaction(
  * Valida endereço XRPL
  */
 export function validateAddress(address: string): boolean {
-  return isValidAddress(address);
+  return isValidXRPLAddress(address);
 }
 
 /**

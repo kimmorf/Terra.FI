@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPrismaClient } from '@/lib/prisma';
 import { auth } from '@/lib/auth';
-import { isValidAddress } from 'xrpl';
+import { validateAndSanitizeAddress } from '@/lib/xrpl/validation';
 import { verifyTransaction } from '@/lib/xrpl/transactions';
 
 export const dynamic = 'force-dynamic';
@@ -68,7 +68,8 @@ export async function POST(request: NextRequest) {
       user = session.user;
     } else if (walletAddress) {
       // Valida formato do endereço XRPL
-      if (!isValidAddress(walletAddress)) {
+      const validatedAddress = validateAndSanitizeAddress(walletAddress);
+      if (!validatedAddress) {
         return NextResponse.json(
           { error: 'Endereço de carteira XRPL inválido' },
           { status: 400 }
@@ -77,15 +78,15 @@ export async function POST(request: NextRequest) {
 
       // Se não tem sessão, busca usuário pelo wallet address
       user = await prisma.user.findUnique({
-        where: { walletAddress },
+        where: { walletAddress: validatedAddress },
       });
 
       // Se não existe, cria o usuário
       if (!user) {
         user = await prisma.user.create({
           data: {
-            name: `Wallet ${walletAddress.slice(0, 8)}...${walletAddress.slice(-6)}`,
-            walletAddress,
+            name: `Wallet ${validatedAddress.slice(0, 8)}...${validatedAddress.slice(-6)}`,
+            walletAddress: validatedAddress,
             email: null,
           },
         });

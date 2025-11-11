@@ -11,7 +11,7 @@ import {
   IssuerOperation
 } from '../xrpl/regular-key';
 import type { XRPLNetwork } from '../xrpl/pool';
-import { isValidAddress } from 'xrpl';
+import { isValidXRPLAddress } from '../xrpl/validation';
 
 const prisma = getPrismaServerClient();
 
@@ -49,7 +49,7 @@ export async function checkFlagPermission(
   executor: string,
   network: XRPLNetwork
 ): Promise<PermissionCheckResult> {
-  if (!isValidAddress(issuer) || !isValidAddress(executor)) {
+  if (!isValidXRPLAddress(issuer) || !isValidXRPLAddress(executor)) {
     return {
       allowed: false,
       reason: 'Endereço inválido',
@@ -295,7 +295,7 @@ export async function setIssuerPermissions(
     throw new Error('Prisma não disponível');
   }
 
-  if (!isValidAddress(issuer)) {
+  if (!isValidXRPLAddress(issuer)) {
     throw new Error('Endereço issuer inválido');
   }
 
@@ -310,11 +310,11 @@ export async function setIssuerPermissions(
     requireColdWalletForClawback: config.requireColdWalletForClawback ?? true,
   };
 
-  if (config.regularKey && isValidAddress(config.regularKey)) {
+    if (config.regularKey && isValidXRPLAddress(config.regularKey)) {
     data.regularKey = config.regularKey;
   }
 
-  if (config.coldWallet && isValidAddress(config.coldWallet)) {
+    if (config.coldWallet && isValidXRPLAddress(config.coldWallet)) {
     data.coldWallet = config.coldWallet;
   } else {
     data.coldWallet = issuer; // Padrão: issuer é a cold wallet

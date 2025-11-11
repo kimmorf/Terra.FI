@@ -1,6 +1,6 @@
 // Utilitários para consultar informações de conta na XRPL
 
-import { isValidAddress } from 'xrpl';
+import { isValidXRPLAddress } from './validation';
 import { xrplPool, type XRPLNetwork } from './pool';
 import { withXRPLRetry } from '../utils/retry';
 import { cache } from '../utils/cache';
@@ -11,7 +11,7 @@ import { dropsToXrp } from '../utils/xrp-converter';
  */
 export async function getAccountInfo(address: string, network: XRPLNetwork = 'testnet') {
   // Validar endereço
-  if (!isValidAddress(address)) {
+  if (!isValidXRPLAddress(address)) {
     throw new Error('Endereço XRPL inválido');
   }
 
@@ -44,7 +44,7 @@ export async function getAccountInfo(address: string, network: XRPLNetwork = 'te
  * Obter tokens MPT de uma conta
  */
 export async function getAccountMPTokens(address: string, network: XRPLNetwork = 'testnet') {
-  if (!isValidAddress(address)) {
+  if (!isValidXRPLAddress(address)) {
     throw new Error('Endereço XRPL inválido');
   }
 
@@ -77,7 +77,7 @@ export async function getAccountMPTokens(address: string, network: XRPLNetwork =
  * Obter saldo XRP de uma conta
  */
 export async function getXRPBalance(address: string, network: XRPLNetwork = 'testnet') {
-  if (!isValidAddress(address)) {
+  if (!isValidXRPLAddress(address)) {
     throw new Error('Endereço XRPL inválido');
   }
 

@@ -14,13 +14,19 @@
     "test:setup": "tsx scripts/tests/setup-accounts.ts",
     "test:e2e:land": "tsx scripts/tests/e2e-land-flow.ts",
     "test:e2e:escrow": "tsx scripts/tests/e2e-build-escrow.ts",
+    "test:e2e:web3": "tsx scripts/tests/e2e-web3-auth.ts",
+    "test:e2e:primary": "tsx scripts/tests/e2e-primary-purchase.ts",
     "test:stress": "tsx scripts/tests/stress-offercreate.ts",
     "test": "vitest",
     "test:e2e": "vitest run tests/e2e",
+    "test:e2e:primary": "vitest run tests/e2e/primary-purchase.test.ts",
+    "test:e2e:compliance": "vitest run tests/e2e/compliance.test.ts",
+    "test:e2e:errors": "vitest run tests/e2e/error-collection.test.ts",
     "test:performance": "vitest run tests/performance",
     "test:negative": "vitest run tests/e2e/negative-tests.test.ts",
     "test:ui": "vitest --ui",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "test:report": "tsx scripts/generate-test-report.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

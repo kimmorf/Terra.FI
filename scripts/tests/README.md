@@ -94,6 +94,8 @@ Todos os testes geram relatórios JSON em `reports/`:
 
 - `e2e-land-flow-{network}-{timestamp}.json`
 - `e2e-build-escrow-{network}-{timestamp}.json`
+- `e2e-web3-auth-{network}-{timestamp}.json`
+- `e2e-primary-purchase-{network}-{timestamp}.json`
 - `stress-offercreate-{network}-{timestamp}.json`
 
 ### Estrutura do Relatório

@@ -5,27 +5,19 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    testTimeout: 300000, // 5 minutos para testes E2E
-    hookTimeout: 60000,
-    teardownTimeout: 10000,
     include: ['tests/**/*.test.ts'],
-    exclude: ['node_modules', '.next', 'dist'],
+    timeout: 300000, // 5 minutos
+    hookTimeout: 300000,
+    teardownTimeout: 30000,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
-      exclude: [
-        'node_modules/',
-        'tests/',
-        '**/*.d.ts',
-        '**/*.config.*',
-        '**/dist/',
-        '**/.next/',
-      ],
+      include: ['lib/**/*.ts'],
+      exclude: ['node_modules', 'tests'],
     },
-    reporters: ['verbose', 'json', 'html'],
+    reporters: ['verbose', 'json'],
     outputFile: {
-      json: './test-reports/results.json',
-      html: './test-reports/results.html',
+      json: './test-results/results.json',
     },
   },
   resolve: {

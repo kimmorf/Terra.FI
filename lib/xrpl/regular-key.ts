@@ -6,7 +6,8 @@
  * operações diárias, enquanto a cold fica offline para operações críticas.
  */
 
-import { Client, SetRegularKey, isValidAddress } from 'xrpl';
+import { Client } from 'xrpl';
+import { isValidXRPLAddress } from '../xrpl/validation';
 import { xrplPool, type XRPLNetwork } from './pool';
 import { withXRPLRetry } from '../utils/retry';
 
@@ -37,7 +38,7 @@ export async function getRegularKeyStatus(
   account: string,
   network: XRPLNetwork = 'testnet'
 ): Promise<RegularKeyStatus> {
-  if (!isValidAddress(account)) {
+  if (!isValidXRPLAddress(account)) {
     throw new Error('Endereço XRPL inválido');
   }
 
@@ -97,7 +98,7 @@ export async function setRegularKey(
     return { success: false, error: 'Endereço da wallet cold inválido' };
   }
 
-  if (!isValidAddress(hotWallet)) {
+  if (!isValidXRPLAddress(hotWallet)) {
     return { success: false, error: 'Endereço da wallet hot inválido' };
   }
 
@@ -124,7 +125,7 @@ export async function setRegularKey(
     }
 
     // Prepara transação SetRegularKey
-    const transaction: SetRegularKey = {
+    const transaction: any = {
       TransactionType: 'SetRegularKey',
       Account: coldWallet,
       RegularKey: hotWallet,
@@ -135,7 +136,7 @@ export async function setRegularKey(
 
     // Assina com a chave privada da wallet cold
     const { Wallet } = await import('xrpl');
-    const wallet = Wallet.fromSecret(secret);
+    const wallet = Wallet.fromSeed(secret);
     const signed = wallet.sign(prepared);
 
     // Submete transação
@@ -251,7 +252,7 @@ export async function validateIssuerWallet(
   operation: IssuerOperation,
   network: XRPLNetwork = 'testnet'
 ): Promise<{ valid: boolean; error?: string }> {
-  if (!isValidAddress(issuer) || !isValidAddress(executingWallet)) {
+  if (!isValidXRPLAddress(issuer) || !isValidXRPLAddress(executingWallet)) {
     return { valid: false, error: 'Endereço inválido' };
   }
 

@@ -120,7 +120,8 @@ export class XRPLConnectionPool {
 
   private cleanupIdleConnections(): void {
     const now = Date.now();
-    for (const [network, state] of this.connections.entries()) {
+    const entries = Array.from(this.connections.entries());
+    for (const [network, state] of entries) {
       if (now - state.lastUsed > this.MAX_IDLE_TIME) {
         if (state.client.isConnected()) {
           state.client.disconnect().catch(() => {
@@ -133,7 +134,8 @@ export class XRPLConnectionPool {
   }
 
   async disconnectAll(): Promise<void> {
-    for (const [network, state] of this.connections.entries()) {
+    const entries = Array.from(this.connections.entries());
+    for (const [network, state] of entries) {
       if (state.client.isConnected()) {
         await state.client.disconnect().catch(() => {
           // Ignora erros

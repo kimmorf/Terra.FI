@@ -223,3 +223,73 @@ model IssuerPermission {
   @@index([issuer])
   @@index([network])
 }
+
+// Purchase Flow - Compra Primária com Idempotência
+model Purchase {
+  id                String   @id @default(cuid())
+  purchaseId        String   @unique // Chave idempotente externa
+  userId            String
+  projectId         String?
+  amount            Float
+  currency          String
+  status            String   @default("PENDING") // PENDING, FUNDS_CONFIRMED, MPT_SENT, COMPLETED, FAILED, COMPENSATION_REQUIRED, ACTION_REQUIRED
+  mptCurrency       String?
+  mptAmount         String?
+  mptIssuer         String?
+  fundsTxHash       String?  @unique
+  mptTxHash         String?
+  retryCount        Int      @default(0)
+  lastError         String?  @db.Text
+  engineResult      String?
+  compensationId    String?
+  actionRequired    String?  // RequireAuth, Trustline, etc.
+  lockedAt          DateTime?
+  lockedBy          String?
+  metadata          Json     @default("{}")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  compensation      Compensation?
+
+  @@index([purchaseId])
+  @@index([status])
+  @@index([fundsTxHash])
+  @@index([mptTxHash])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+// Compensação
+model Compensation {
+  id            String   @id @default(cuid())
+  purchaseId    String   @unique
+  type          String   // REFUND, RETRY_MPT, MANUAL
+  status        String   @default("PENDING") // PENDING, APPROVED, EXECUTED, FAILED
+  reason        String   @db.Text
+  approvedBy    String?
+  approvedAt    DateTime?
+  executedAt    DateTime?
+  refundTxHash  String?
+  retryMptTxHash String?
+  metadata      Json     @default("{}")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  purchase      Purchase? @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([purchaseId])
+}
+
+// Circuit Breaker State
+model CircuitBreakerState {
+  id          String   @id @default(cuid())
+  endpoint    String   @unique
+  state       String   @default("CLOSED") // CLOSED, OPEN, HALF_OPEN
+  failureCount Int     @default(0)
+  lastFailure  DateTime?
+  openedAt     DateTime?
+  nextAttempt  DateTime?
+  metadata    Json     @default("{}")
+  updatedAt   DateTime @updatedAt
+
+  @@index([state])
+}

@@ -112,7 +112,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     // Atualiza o status
-    const updatedInvestment = await prisma.investment.update({
+    await prisma.investment.update({
       where: { id: investmentId },
       data: { status },
     });
@@ -131,6 +131,14 @@ export async function PATCH(request: NextRequest) {
       // Retorna informações para o frontend enviar tokens
       const tokenPrice = extractTokenPrice(investment.project.example);
       const tokenAmount = tokenPrice ? calculateTokenAmount(investment.amount, tokenPrice) : 0;
+
+      const updatedInvestment = await prisma.investment.findUnique({
+        where: { id: investmentId },
+        include: {
+          user: true,
+          project: true,
+        },
+      });
 
       return NextResponse.json({
         ...updatedInvestment,
@@ -154,7 +162,16 @@ export async function PATCH(request: NextRequest) {
       });
     }
 
-    return NextResponse.json(result);
+    // Busca investimento atualizado
+    const finalInvestment = await prisma.investment.findUnique({
+      where: { id: investmentId },
+      include: {
+        user: true,
+        project: true,
+      },
+    });
+
+    return NextResponse.json(finalInvestment);
   } catch (error) {
     console.error('Erro ao atualizar investimento:', error);
     return NextResponse.json(

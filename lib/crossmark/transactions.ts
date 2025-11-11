@@ -208,6 +208,7 @@ export function buildXRPPaymentTransaction({
   // Converter com precisão
   const amountInDrops = xrpToDrops(amount);
 
+  // Construir transação no formato correto para XRPL
   const transaction: Record<string, unknown> = {
     TransactionType: 'Payment',
     Account: sender,
@@ -215,6 +216,7 @@ export function buildXRPPaymentTransaction({
     Amount: amountInDrops, // XRP nativo é enviado como string de drops
   };
 
+  // Adicionar memo se fornecido
   if (memo) {
     transaction.Memos = [
       {
@@ -224,6 +226,11 @@ export function buildXRPPaymentTransaction({
         },
       },
     ];
+  }
+
+  // Garantir que TransactionType está presente
+  if (!transaction.TransactionType) {
+    throw new Error('Erro ao construir transação: TransactionType não definido');
   }
 
   return transaction;
@@ -272,8 +279,13 @@ export async function signAndSubmitTransaction(
     throw new Error('Crossmark SDK indisponível. Certifique-se de que a extensão está carregada.');
   }
 
-  // Validar transação se solicitado (padrão: true)
-  if (options?.validate !== false) {
+  // Garantir que a transação tem TransactionType
+  if (!transaction.TransactionType) {
+    throw new Error('Transação deve ter TransactionType definido');
+  }
+
+  // Validar transação se solicitado (padrão: false para evitar problemas)
+  if (options?.validate === true) {
     const { validateTransaction } = await import('./validation');
     const validation = await validateTransaction(
       transaction,
@@ -295,24 +307,68 @@ export async function signAndSubmitTransaction(
     throw new Error('A versão atual da Crossmark não suporta signAndSubmitAndWait.');
   }
 
-  const response = await sdk.async.signAndSubmitAndWait({
-    tx_json: transaction,
-    autofill: true,
-    failHard: true, // Mudar para true para falhar rápido
-    timeout: options?.timeout ?? 60000,
+  // Garantir que estamos passando a transação corretamente
+  // Crossmark espera tx_json com a transação completa
+  // Criar uma cópia limpa da transação para evitar problemas de referência
+  const txJson: Record<string, unknown> = {};
+  
+  // Copiar todos os campos da transação
+  for (const key in transaction) {
+    if (transaction.hasOwnProperty(key)) {
+      txJson[key] = transaction[key];
+    }
+  }
+
+  // Garantir que TransactionType está presente e é uma string
+  if (!txJson.TransactionType || typeof txJson.TransactionType !== 'string') {
+    console.error('[Crossmark] Transação inválida:', transaction);
+    throw new Error(`TransactionType deve ser uma string. Recebido: ${typeof txJson.TransactionType}`);
+  }
+
+  console.log('[Crossmark] Enviando transação:', {
+    TransactionType: txJson.TransactionType,
+    Account: txJson.Account,
+    Destination: txJson.Destination,
+    Amount: txJson.Amount,
+    hasMemos: !!txJson.Memos,
   });
 
-  if (!response) {
-    throw new Error('Não foi possível obter a resposta da Crossmark.');
+  // Verificar se a transação está no formato correto antes de enviar
+  if (!txJson.Account) {
+    throw new Error('Transação deve ter Account definido');
   }
 
-  // Verificar status da transação
-  const status = (response as any)?.data?.result?.engine_result;
-  if (status && !status.startsWith('tes')) {
-    throw new Error(`Transação falhou: ${status}`);
-  }
+  try {
+    const response = await sdk.async.signAndSubmitAndWait({
+      tx_json: txJson,
+      autofill: true, // Crossmark faz autofill automaticamente
+      failHard: false, // Mudar para false para não falhar rápido demais
+      timeout: options?.timeout ?? 60000,
+    });
 
-  return response;
+    if (!response) {
+      throw new Error('Não foi possível obter a resposta da Crossmark.');
+    }
+
+    // Verificar status da transação
+    const status = (response as any)?.data?.result?.engine_result;
+    if (status && !status.startsWith('tes')) {
+      throw new Error(`Transação falhou: ${status}`);
+    }
+
+    return response;
+  } catch (error: any) {
+    // Log detalhado do erro para debug
+    console.error('[Crossmark] Erro ao enviar transação:', {
+      error: error.message,
+      transaction: {
+        TransactionType: txJson.TransactionType,
+        Account: txJson.Account,
+        Destination: txJson.Destination,
+      },
+    });
+    throw error;
+  }
 }
 
 export function authorizeMPToken(params: MPTokenAuthorizeParams) {

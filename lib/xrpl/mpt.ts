@@ -1,4 +1,4 @@
-import { isValidAddress } from 'xrpl';
+import { isValidXRPLAddress } from './validation';
 import { xrplPool, type XRPLNetwork } from './pool';
 import { withXRPLRetry } from '../utils/retry';
 import { cache } from '../utils/cache';
@@ -11,7 +11,7 @@ export async function hasTrustLine(params: {
 }) {
     const { account, currency, issuer, network = 'testnet' } = params;
 
-    if (!isValidAddress(account) || !isValidAddress(issuer)) {
+    if (!isValidXRPLAddress(account) || !isValidXRPLAddress(issuer)) {
         throw new Error('Endereço XRPL inválido');
     }
 
@@ -92,7 +92,7 @@ export async function getAccountBalance(params: {
 }) {
     const { account, currency, issuer, network = 'testnet' } = params;
 
-    if (!isValidAddress(account) || !isValidAddress(issuer)) {
+    if (!isValidXRPLAddress(account) || !isValidXRPLAddress(issuer)) {
         throw new Error('Endereço XRPL inválido');
     }
 
