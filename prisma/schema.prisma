@@ -90,3 +90,36 @@ model Investment {
   project     InvestmentProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
 }
 
+model RevPayoutBatch {
+  id            String           @id @default(cuid())
+  tokenId       String
+  stablecoinId  String
+  network       String
+  totalAmount   Float
+  memo          String?
+  scheduledFor  DateTime?
+  status        String           @default("scheduled") // scheduled, processing, completed, error, cancelled
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  items         RevPayoutItem[]
+}
+
+model RevPayoutItem {
+  id             String          @id @default(cuid())
+  batchId        String
+  holderAddress  String
+  holderBalance  Float
+  share          Float
+  amount         Float
+  status         String          @default("pending") // pending, processing, paid, error, skipped, trustline_missing
+  attempts       Int             @default(0)
+  txHash         String?
+  lastError      String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  batch          RevPayoutBatch  @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@index([batchId])
+  @@index([status])
+}
+

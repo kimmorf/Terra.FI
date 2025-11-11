@@ -99,6 +99,7 @@ export default function Home() {
     targetAmount: '',
   });
   const [mptokens, setMptokens] = useState<any[]>([]);
+  const [noTokensDismissed, setNoTokensDismissed] = useState(false);
   const [xrpBalance, setXrpBalance] = useState<number | null>(null);
   const [loadingTokens, setLoadingTokens] = useState(false);
   const [tokensError, setTokensError] = useState<string | null>(null);
@@ -153,6 +154,7 @@ export default function Home() {
     setXrpBalance(null);
     setTokensError(null);
     setCopied(false);
+    setNoTokensDismissed(false);
   }, [disconnect]);
 
   const copyAddress = useCallback(() => {
@@ -206,8 +208,15 @@ export default function Home() {
       setMptokens([]);
       setXrpBalance(null);
       setTokensError(null);
+      setNoTokensDismissed(false);
     }
   }, [isConnected, account, loadAccountData]);
+
+  useEffect(() => {
+    if (mptokens.length > 0) {
+      setNoTokensDismissed(false);
+    }
+  }, [mptokens.length]);
 
   const handleCreateProject = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -624,47 +633,77 @@ export default function Home() {
                   <h3 className="text-lg font-semibold text-gray-800 dark:text-white mb-4">
                     Seus Tokens MPT
                   </h3>
-                  {loadingTokens ? (
-                    <div className="flex justify-center py-8">
-                      <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                    </div>
-                  ) : tokensError ? (
-                    <div className="flex items-start gap-3 p-4 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-700 rounded-lg text-red-700 dark:text-red-300">
-                      <AlertCircle className="w-5 h-5 mt-1" />
-                      <p className="text-sm">{tokensError}</p>
-                    </div>
-                  ) : mptokens.length > 0 ? (
-                    <div className="space-y-3">
-                      {mptokens.map((token, index) => (
-                        <div
-                          key={`${token.currency}-${token.issuer}-${index}`}
-                          className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-600"
-                        >
-                          <div className="flex justify-between items-center">
-                            <div>
-                              <p className="font-semibold text-gray-800 dark:text-white">
-                                {token.currency}
-                              </p>
-                              <p className="text-sm text-gray-500 dark:text-gray-400">
-                                {token.issuer}
-                              </p>
+                  {(() => {
+                    if (loadingTokens) {
+                      return (
+                        <div className="flex justify-center py-8">
+                          <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                        </div>
+                      );
+                    }
+
+                    if (tokensError) {
+                      return (
+                        <div className="flex items-start gap-3 p-4 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-700 rounded-lg text-red-700 dark:text-red-300">
+                          <AlertCircle className="w-5 h-5 mt-1" />
+                          <p className="text-sm">{tokensError}</p>
+                        </div>
+                      );
+                    }
+
+                    if (mptokens.length > 0) {
+                      return (
+                        <div className="space-y-3">
+                          {mptokens.map((token, index) => (
+                            <div
+                              key={`${token.currency}-${token.issuer}-${index}`}
+                              className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-600"
+                            >
+                              <div className="flex justify-between items-center">
+                                <div>
+                                  <p className="font-semibold text-gray-800 dark:text-white">
+                                    {token.currency}
+                                  </p>
+                                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                                    {token.issuer}
+                                  </p>
+                                </div>
+                                <p className="text-lg font-bold text-blue-600 dark:text-blue-400">
+                                  {parseFloat(token.balance).toLocaleString('pt-BR', {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 6,
+                                  })}
+                                </p>
+                              </div>
                             </div>
-                            <p className="text-lg font-bold text-blue-600 dark:text-blue-400">
-                              {parseFloat(token.balance).toLocaleString('pt-BR', {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 6,
-                              })}
+                          ))}
+                        </div>
+                      );
+                    }
+
+                    if (!noTokensDismissed) {
+                      return (
+                        <div className="text-center py-8 text-gray-500 dark:text-gray-400 space-y-4">
+                          <div>
+                            <Coins className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                            <p>Nenhum token MPT encontrado.</p>
+                            <p className="text-sm text-gray-400 dark:text-gray-500">
+                              Assim que você receber ou emitir um MPT, ele aparecerá aqui.
                             </p>
                           </div>
+                          <button
+                            type="button"
+                            onClick={() => setNoTokensDismissed(true)}
+                            className="inline-flex items-center px-4 py-2 text-sm font-semibold rounded-full bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-100 hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors"
+                          >
+                            Entendi
+                          </button>
                         </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-                      <Coins className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                      <p>Nenhum token MPT encontrado</p>
-                    </div>
-                  )}
+                      );
+                    }
+
+                    return null;
+                  })()}
                 </div>
               )}
 

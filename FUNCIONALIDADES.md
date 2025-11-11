@@ -7,6 +7,7 @@
 - **Distribuição de Receitas** (`/revenue`): cálculo de rateio REV-MPT e pagamentos holder a holder.
 - **Logs Elysia**: emissões, pagamentos, freeze/clawback, trades e payouts.
 - **Documentação rápida** (`INICIO_RAPIDO.md`) atualizada para os novos fluxos.
+- **Aviso único** para carteiras sem MPT: mensagem no dashboard pode ser dispensada e não reaparece em loop.
 
 ## Em andamento / Próximas
 - Automatizar pagamentos REV (batch com tracking de ciclos).
