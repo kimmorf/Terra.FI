@@ -2,14 +2,10 @@
  * Validação de transações XRPL antes de enviar
  */
 
-import { Client, validate, isValidAddress } from 'xrpl';
+import { Client } from 'xrpl';
 import { xrplPool, type XRPLNetwork } from '../xrpl/pool';
 import { ValidationError } from '../errors/xrpl-errors';
-
-// Helper para validar endereço XRPL (usa função do xrpl)
-function isValidXRPLAddress(address: string): boolean {
-  return isValidAddress(address);
-}
+import { isValidXRPLAddress } from '../xrpl/validation';
 
 export interface ValidationResult {
   valid: boolean;
@@ -43,14 +39,23 @@ export async function validateTransaction(
   // Validar tipos específicos de transação
   switch (transaction.TransactionType) {
     case 'MPTokenIssuanceCreate':
-      if (!transaction.Currency) {
-        errors.push('Currency é obrigatório para MPTokenIssuanceCreate');
+      // Valida campos corretos da especificação XRPL
+      if (typeof transaction.AssetScale !== 'number') {
+        errors.push('AssetScale é obrigatório e deve ser um número (0-9)');
+      } else if (transaction.AssetScale < 0 || transaction.AssetScale > 9) {
+        errors.push('AssetScale deve estar entre 0 e 9');
       }
-      if (!transaction.Amount) {
-        errors.push('Amount é obrigatório');
+      if (!transaction.MaximumAmount) {
+        errors.push('MaximumAmount é obrigatório');
       }
-      if (typeof transaction.Decimals !== 'number') {
-        errors.push('Decimals deve ser um número');
+      if (typeof transaction.TransferFee !== 'number') {
+        errors.push('TransferFee é obrigatório e deve ser um número');
+      } else if (transaction.TransferFee < 0 || transaction.TransferFee > 50000) {
+        errors.push('TransferFee deve estar entre 0 e 50000 (basis points)');
+      }
+      // Valida MPTokenMetadata se presente
+      if (transaction.MPTokenMetadata && typeof transaction.MPTokenMetadata !== 'string') {
+        errors.push('MPTokenMetadata deve ser uma string hex');
       }
       break;
 
@@ -87,9 +92,23 @@ export async function validateTransaction(
       break;
 
     case 'MPTokenAuthorize':
-      if (!transaction.Currency) {
-        errors.push('Currency é obrigatório para MPTokenAuthorize');
+      // Valida identificação do token (MPTokenIssuanceID OU Currency+Issuer)
+      const hasMPTokenIssuanceID = !!transaction.MPTokenIssuanceID;
+      const hasCurrencyIssuer = !!(transaction.Currency && transaction.Issuer);
+      
+      if (!hasMPTokenIssuanceID && !hasCurrencyIssuer) {
+        errors.push('MPTokenAuthorize requer MPTokenIssuanceID OU (Currency + Issuer)');
       }
+      
+      if (hasCurrencyIssuer) {
+        if (typeof transaction.Currency !== 'string') {
+          errors.push('Currency deve ser uma string');
+        }
+        if (typeof transaction.Issuer === 'string' && !isValidXRPLAddress(transaction.Issuer)) {
+          errors.push('Issuer não é um endereço XRPL válido');
+        }
+      }
+      
       if (!transaction.Holder) {
         errors.push('Holder é obrigatório para MPTokenAuthorize');
       } else if (typeof transaction.Holder === 'string') {

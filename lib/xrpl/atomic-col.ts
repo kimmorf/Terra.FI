@@ -3,11 +3,13 @@
  * Saga pattern: freeze LAND → issue COL com compensação
  */
 
-import { reliableSubmit, generateIdempotencyKey } from './reliable-submission';
+import { reliableSubmitV2 as reliableSubmit, generateIdempotencyKey } from './reliable-submission-v2';
 import {
   buildMPTokenFreezeTransaction,
   buildMPTokenIssuanceTransaction,
 } from '../crossmark/transactions';
+import { Wallet } from 'xrpl';
+import { xrplPool } from './pool';
 import type { MPTokenMetadata } from '../crossmark/types';
 import { getPrismaClient } from '../prisma';
 
@@ -16,6 +18,7 @@ export interface FreezeLANDParams {
   currency: string;
   holder: string;
   network: 'testnet' | 'mainnet' | 'devnet';
+  issuerSeed?: string; // Seed do issuer para assinar transações
 }
 
 export interface IssueCOLParams {
@@ -25,6 +28,7 @@ export interface IssueCOLParams {
   decimals: number;
   metadata?: MPTokenMetadata;
   network: 'testnet' | 'mainnet' | 'devnet';
+  issuerSeed?: string; // Seed do issuer para assinar transações
 }
 
 export interface AtomicCOLResult {
@@ -79,7 +83,17 @@ export async function atomicCreateCOL(
       freeze: true,
     });
 
-    const freezeResult = await reliableSubmit(freezeTx, freezeParams.network, {
+    // Assina transação antes de submeter
+    if (!freezeParams.issuerSeed) {
+      throw new Error('issuerSeed é obrigatório para assinar transações');
+    }
+    
+    const issuer = Wallet.fromSeed(freezeParams.issuerSeed);
+    const client = await xrplPool.getClient(freezeParams.network);
+    const prepared = await client.autofill(freezeTx);
+    const signed = issuer.sign(prepared);
+    
+    const freezeResult = await reliableSubmit(signed.tx_blob, freezeParams.network, {
       idempotencyKey: `${key}_freeze`,
       maxRetries: 3,
     });
@@ -124,7 +138,17 @@ export async function atomicCreateCOL(
         metadata: issueParams.metadata,
       });
 
-      const issueResult = await reliableSubmit(issueTx, issueParams.network, {
+      // Assina transação antes de submeter
+      if (!issueParams.issuerSeed) {
+        throw new Error('issuerSeed é obrigatório para assinar transações');
+      }
+      
+      const issuerWallet = Wallet.fromSeed(issueParams.issuerSeed);
+      const issueClient = await xrplPool.getClient(issueParams.network);
+      const issuePrepared = await issueClient.autofill(issueTx);
+      const issueSigned = issuerWallet.sign(issuePrepared);
+
+      const issueResult = await reliableSubmit(issueSigned.tx_blob, issueParams.network, {
         idempotencyKey: `${key}_issue`,
         maxRetries: 3,
       });
@@ -196,6 +220,11 @@ async function compensateUnfreezeLAND(
   freezeTxHash: string
 ): Promise<void> {
   try {
+    if (!freezeParams.issuerSeed) {
+      console.error('[AtomicCOL] issuerSeed não fornecido, não é possível compensar unfreeze');
+      return;
+    }
+
     const unfreezeTx = buildMPTokenFreezeTransaction({
       issuer: freezeParams.issuer,
       currency: freezeParams.currency,
@@ -203,7 +232,13 @@ async function compensateUnfreezeLAND(
       freeze: false,
     });
 
-    const result = await reliableSubmit(unfreezeTx, freezeParams.network, {
+    // Assina transação antes de submeter
+    const issuerWallet = Wallet.fromSeed(freezeParams.issuerSeed!);
+    const client = await xrplPool.getClient(freezeParams.network);
+    const prepared = await client.autofill(unfreezeTx);
+    const signed = issuerWallet.sign(prepared);
+
+    const result = await reliableSubmit(signed.tx_blob, freezeParams.network, {
       idempotencyKey: `compensate_${freezeTxHash}`,
       maxRetries: 3,
     });

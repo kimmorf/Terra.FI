@@ -189,13 +189,23 @@ export default function TokenFactoryPage() {
         setTxHash(null);
 
         try {
+            // Usa novos campos da especificação XRPL (com compatibilidade para campos antigos)
             const transaction = buildMPTokenIssuanceTransaction({
                 issuer: account.address,
-                currency: selectedPreset.currency,
-                amount: baseUnits,
-                decimals: config.decimals,
-                transferable: config.transferable,
+                // Novos campos (especificação XRPL)
+                assetScale: config.decimals,
+                maximumAmount: baseUnits,
+                transferFee: 0, // Sem taxa de transferência por padrão
+                flags: {
+                    canTransfer: config.transferable,
+                    // Adiciona outras flags conforme necessário
+                },
                 metadata,
+                // Campos antigos (deprecated, mas mantidos para compatibilidade)
+                currency: selectedPreset.currency, // Apenas para referência
+                amount: baseUnits, // Fallback
+                decimals: config.decimals, // Fallback
+                transferable: config.transferable, // Fallback
             });
 
             const response = await signAndSubmitTransaction(transaction);

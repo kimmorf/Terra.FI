@@ -200,14 +200,23 @@ export class PurchaseService {
       },
     });
 
-    // Registra evento
-    await prisma.purchaseEvent.create({
+    // Registra evento no metadata (já que PurchaseEvent pode não existir)
+    await prisma.purchase.update({
+      where: { id: purchase.id },
       data: {
-        purchaseId: purchase.id,
-        eventType: 'purchase_committed',
-        fromState: null,
-        toState: 'PENDING_PAYMENT',
-        triggeredBy: 'system',
+        metadata: {
+          ...(purchase.metadata as any || {}),
+          events: [
+            ...((purchase.metadata as any)?.events || []),
+            {
+              eventType: 'purchase_committed',
+              fromState: null,
+              toState: 'PENDING',
+              triggeredBy: 'system',
+              createdAt: new Date().toISOString(),
+            },
+          ],
+        },
       },
     });
 
@@ -234,7 +243,6 @@ export class PurchaseService {
     // Busca compra
     const purchase = await prisma.purchase.findUnique({
       where: { purchaseId: dto.purchaseId },
-      include: { ledgerTxs: true, events: true },
     });
 
     if (!purchase) {
@@ -242,21 +250,22 @@ export class PurchaseService {
     }
 
     // Se já tem paymentTxHash, verifica se é o mesmo
-    if (dto.paymentTxHash && purchase.paymentTxHash) {
-      if (purchase.paymentTxHash !== dto.paymentTxHash) {
+    if (dto.paymentTxHash && purchase.fundsTxHash) {
+      if (purchase.fundsTxHash !== dto.paymentTxHash) {
         throw new Error('Hash de pagamento não confere');
       }
     }
 
     // Se não tem paymentTxHash ainda, tenta detectar on-ledger ou usa o fornecido
-    let paymentTxHash = purchase.paymentTxHash || dto.paymentTxHash;
+    let paymentTxHash = purchase.fundsTxHash || dto.paymentTxHash;
 
     if (!paymentTxHash) {
       // Tenta detectar pagamento on-ledger verificando transações recentes
+      const metadata = purchase.metadata as any;
       paymentTxHash = await this.detectPaymentOnLedger(
-        purchase.buyerAddress,
-        purchase.treasuryAddress,
-        purchase.memo || ''
+        metadata?.buyerAddress || '',
+        metadata?.treasuryAddress || this.treasuryAddress,
+        metadata?.memo || ''
       );
     }
 
@@ -274,33 +283,25 @@ export class PurchaseService {
     }
 
     // Atualiza compra com hash do pagamento
-    if (!purchase.paymentTxHash) {
+    if (!purchase.fundsTxHash) {
       await prisma.purchase.update({
         where: { id: purchase.id },
         data: {
-          paymentTxHash: paymentTxHash,
+          fundsTxHash: paymentTxHash,
           status: 'FUNDS_CONFIRMED',
-        },
-      });
-
-      // Registra transação do ledger
-      await prisma.ledgerTx.create({
-        data: {
-          purchaseId: purchase.id,
-          leg: 1,
-          txHash: paymentTxHash,
-          status: 'validated',
-        },
-      });
-
-      // Registra evento
-      await prisma.purchaseEvent.create({
-        data: {
-          purchaseId: purchase.id,
-          eventType: 'payment_confirmed',
-          fromState: 'PENDING_PAYMENT',
-          toState: 'FUNDS_CONFIRMED',
-          triggeredBy: 'system',
+          metadata: {
+            ...(purchase.metadata as any || {}),
+            events: [
+              ...((purchase.metadata as any)?.events || []),
+              {
+                eventType: 'payment_confirmed',
+                fromState: 'PENDING',
+                toState: 'FUNDS_CONFIRMED',
+                triggeredBy: 'system',
+                createdAt: new Date().toISOString(),
+              },
+            ],
+          },
         },
       });
     }
@@ -310,17 +311,18 @@ export class PurchaseService {
       return {
         purchaseId: purchase.purchaseId,
         status: purchase.status as PurchaseStatus,
-        paymentTxHash: purchase.paymentTxHash || undefined,
+        paymentTxHash: purchase.fundsTxHash || undefined,
         mptTxHash: purchase.mptTxHash || undefined,
       };
     }
 
     // Dispara envio de MPT (perna 2)
     try {
+      const metadata = purchase.metadata as any || {};
       const mptTxHash = await this.sendMPTToBuyer(
-        purchase.issuanceIdHex,
-        purchase.buyerAddress,
-        purchase.quantity,
+        metadata.issuanceIdHex || '',
+        metadata.buyerAddress || '',
+        purchase.mptAmount || metadata.quantity || '0',
         purchase.id
       );
 
@@ -330,27 +332,19 @@ export class PurchaseService {
         data: {
           mptTxHash,
           status: 'COMPLETED',
-        },
-      });
-
-      // Registra transação do ledger
-      await prisma.ledgerTx.create({
-        data: {
-          purchaseId: purchase.id,
-          leg: 2,
-          txHash: mptTxHash,
-          status: 'validated',
-        },
-      });
-
-      // Registra evento
-      await prisma.purchaseEvent.create({
-        data: {
-          purchaseId: purchase.id,
-          eventType: 'mpt_sent',
-          fromState: 'FUNDS_CONFIRMED',
-          toState: 'COMPLETED',
-          triggeredBy: 'system',
+          metadata: {
+            ...(purchase.metadata as any || {}),
+            events: [
+              ...((purchase.metadata as any)?.events || []),
+              {
+                eventType: 'mpt_sent',
+                fromState: 'FUNDS_CONFIRMED',
+                toState: 'COMPLETED',
+                triggeredBy: 'system',
+                createdAt: new Date().toISOString(),
+              },
+            ],
+          },
         },
       });
 
@@ -366,20 +360,27 @@ export class PurchaseService {
         where: { id: purchase.id },
         data: {
           status: 'COMPENSATION_REQUIRED',
-          compensationReason: error.message || 'Falha ao enviar MPT',
+          lastError: error.message || 'Falha ao enviar MPT',
+          metadata: {
+            ...(purchase.metadata as any || {}),
+            error: error.message || 'Falha ao enviar MPT',
+            events: [
+              ...((purchase.metadata as any)?.events || []),
+              {
+                eventType: 'compensation_required',
+                fromState: 'FUNDS_CONFIRMED',
+                toState: 'COMPENSATION_REQUIRED',
+                triggeredBy: 'system',
+                error: error.message,
+                createdAt: new Date().toISOString(),
+              },
+            ],
+          },
         },
       });
 
-      await prisma.purchaseEvent.create({
-        data: {
-          purchaseId: purchase.id,
-          eventType: 'compensation_required',
-          fromState: 'FUNDS_CONFIRMED',
-          toState: 'COMPENSATION_REQUIRED',
-          triggeredBy: 'system',
-          metadata: { error: error.message },
-        },
-      });
+      // TODO: Adicionar modelo PurchaseEvent ao schema
+      // Evento registrado no metadata do purchase acima
 
       throw new Error(
         `Pagamento confirmado mas falha ao enviar MPT: ${error.message}. Compensação necessária.`
@@ -485,6 +486,17 @@ export class PurchaseService {
     quantity: string,
     purchaseDbId: string
   ): Promise<string> {
+    // issuanceIdHex está no metadata, precisa extrair
+    const purchase = await prisma.purchase.findUnique({
+      where: { id: purchaseDbId },
+    });
+    
+    if (!purchase) {
+      throw new Error('Compra não encontrada');
+    }
+    
+    const metadata = purchase.metadata as any || {};
+    const actualIssuanceIdHex = metadata.issuanceIdHex || issuanceIdHex;
     if (!this.issuerSeed) {
       throw new Error('XRPL_ISSUER_SECRET não configurado');
     }
@@ -498,7 +510,7 @@ export class PurchaseService {
         Account: issuer.address,
         Destination: buyerAddress,
         Amount: {
-          mpt_issuance_id: issuanceIdHex,
+          mpt_issuance_id: actualIssuanceIdHex,
           value: quantity,
         },
       };
@@ -517,15 +529,8 @@ export class PurchaseService {
       return txHash;
     } catch (error: any) {
       // Registra erro
-      await prisma.ledgerTx.create({
-        data: {
-          purchaseId: purchaseDbId,
-          leg: 2,
-          txHash: 'FAILED',
-          status: 'failed',
-          error: error.message,
-        },
-      });
+      // TODO: Adicionar modelo LedgerTx ao schema
+      // Transação registrada no metadata do purchase
 
       throw error;
     }

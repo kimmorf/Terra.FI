@@ -441,11 +441,73 @@ export default function Home() {
 
       // Usa função utilitária para extrair hash
       const { extractTransactionHash } = await import('@/lib/crossmark/transactions');
-      const txHash = extractTransactionHash(paymentResponse);
+      
+      // Log da resposta para debug
+      console.log('[Investimento] Resposta do pagamento:', paymentResponse);
+      
+      // Tenta extrair hash
+      let txHash = extractTransactionHash(paymentResponse);
+      
+      // Se não encontrou, tenta explorar a estrutura manualmente
+      if (!txHash) {
+        const responseObj = paymentResponse as any;
+        
+        // Explora estrutura response.response.data...
+        if (responseObj?.response) {
+          const innerResponse = responseObj.response;
+          
+          // Tenta múltiplos caminhos
+          txHash = 
+            innerResponse?.data?.hash ??
+            innerResponse?.data?.result?.hash ??
+            innerResponse?.data?.result?.tx_json?.hash ??
+            innerResponse?.hash ??
+            innerResponse?.result?.hash ??
+            null;
+          
+          // Se ainda não encontrou, tenta usar função recursiva avançada
+          if (!txHash) {
+            try {
+              const { extractHashRecursive } = await import('@/lib/crossmark/hash-extractor');
+              txHash = extractHashRecursive(innerResponse);
+              if (txHash) {
+                console.log('[Investimento] Hash encontrado via busca recursiva:', txHash);
+              }
+            } catch (error) {
+              console.warn('[Investimento] Erro ao usar busca recursiva:', error);
+            }
+          }
+        }
+      }
 
       if (!txHash) {
-        throw new Error('Não foi possível obter o hash da transação');
+        // Log detalhado para debug
+        const responseObj = paymentResponse as any;
+        console.error('[Investimento] Não foi possível extrair hash. Resposta completa:', {
+          response: paymentResponse,
+          type: typeof paymentResponse,
+          keys: paymentResponse && typeof paymentResponse === 'object' ? Object.keys(paymentResponse) : null,
+          responseStructure: responseObj?.response ? {
+            keys: Object.keys(responseObj.response),
+            data: responseObj.response.data,
+            result: responseObj.response.result,
+          } : null,
+        });
+        
+        // Tenta extrair informações úteis para o usuário
+        const errorMessage = 
+          responseObj?.response?.data?.result?.engine_result_message ??
+          responseObj?.response?.data?.message ??
+          responseObj?.response?.message ??
+          responseObj?.data?.result?.engine_result_message ??
+          responseObj?.data?.message ??
+          responseObj?.message ??
+          'Não foi possível obter o hash da transação. Verifique o console para mais detalhes.';
+        
+        throw new Error(errorMessage);
       }
+      
+      console.log('[Investimento] Hash extraído com sucesso:', txHash);
 
       // 2. Após pagamento confirmado, registra no banco
       const response = await fetch('/api/investments', {

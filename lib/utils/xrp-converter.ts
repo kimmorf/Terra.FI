@@ -5,7 +5,7 @@ import Decimal from 'decimal.js';
  */
 export function xrpToDrops(xrp: string | number): string {
   const xrpDecimal = new Decimal(xrp);
-  const dropsDecimal = xrpDecimal.mul(1000000);
+  const dropsDecimal = xrpDecimal.times(1000000);
   return dropsDecimal.toFixed(0);
 }
 

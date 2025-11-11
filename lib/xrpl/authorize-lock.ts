@@ -4,8 +4,9 @@
  */
 
 import { getPrismaClient } from '../prisma';
-import { reliableSubmit, generateIdempotencyKey } from './reliable-submission';
+import { reliableSubmitV2 as reliableSubmit, generateIdempotencyKey } from './reliable-submission-v2';
 import { buildMPTokenAuthorizeTransaction, buildPaymentTransaction } from '../crossmark/transactions';
+// prepareAndSignTransaction removido - usando xrpl.Wallet diretamente
 
 export interface AuthorizeAndTransferParams {
   issuer: string;
@@ -14,6 +15,7 @@ export interface AuthorizeAndTransferParams {
   transferAmount: string;
   transferDestination: string;
   network: 'testnet' | 'mainnet' | 'devnet';
+  issuerSeed?: string; // Seed do issuer para assinar transações
   idempotencyKey?: string;
 }
 
@@ -151,7 +153,18 @@ export async function authorizeAndTransferAtomic(
       authorize: true,
     });
 
-    const authorizeResult = await reliableSubmit(authorizeTx, params.network, {
+    // Assina transação antes de submeter
+    if (!params.issuerSeed) {
+      throw new Error('issuerSeed é obrigatório para assinar transações');
+    }
+
+    const authorizeTxBlob = await prepareAndSignTransaction(
+      authorizeTx,
+      params.issuerSeed,
+      params.network
+    );
+
+    const authorizeResult = await reliableSubmit(authorizeTxBlob, params.network, {
       idempotencyKey: `${idempotencyKey}_authorize`,
       maxRetries: 3,
     });
@@ -193,7 +206,14 @@ export async function authorizeAndTransferAtomic(
       memo: `Authorized transfer via ${idempotencyKey}`,
     });
 
-    const transferResult = await reliableSubmit(transferTx, params.network, {
+    // Assina transação antes de submeter
+    const transferIssuer = xrpl.Wallet.fromSeed(params.issuerSeed!);
+    const transferClient = await xrplPool.getClient(params.network);
+    const transferPrepared = await transferClient.autofill(transferTx);
+    const transferSigned = transferIssuer.sign(transferPrepared);
+    const transferTxBlob = transferSigned.tx_blob;
+
+    const transferResult = await reliableSubmit(transferTxBlob, params.network, {
       idempotencyKey: `${idempotencyKey}_transfer`,
       maxRetries: 3,
     });
@@ -203,7 +223,7 @@ export async function authorizeAndTransferAtomic(
       return {
         success: false,
         authorizeTxHash: authorizeResult.txHash,
-        error: `Failed to transfer: ${transferResult.error}. Holder is authorized but transfer failed.`,
+        error: `Failed to transfer: ${transferResult.error || 'Unknown error'}. Holder is authorized but transfer failed.`,
         locked: true,
       };
     }
@@ -219,7 +239,7 @@ export async function authorizeAndTransferAtomic(
           target: params.transferDestination,
           amount: params.transferAmount,
           network: params.network,
-          txHash: transferResult.txHash,
+          txHash: transferResult.txHash || undefined,
           metadata: {
             idempotencyKey,
             lockKey,
@@ -230,8 +250,8 @@ export async function authorizeAndTransferAtomic(
 
     return {
       success: true,
-      authorizeTxHash: authorizeResult.txHash,
-      transferTxHash: transferResult.txHash,
+      authorizeTxHash: authorizeResult.txHash || undefined,
+      transferTxHash: transferResult.txHash || undefined,
       locked: true,
     };
   } finally {

@@ -6,18 +6,43 @@ import { xrpToDrops, isValidXRPAmount } from '../utils/xrp-converter';
 
 export interface MPTokenIssuanceParams {
   issuer: string;
-  currency: string;
-  amount: string;
-  decimals: number;
+  // Campos da especificação XRPL
+  assetScale?: number; // 0-9, número de casas decimais (antigo: decimals)
+  maximumAmount?: string; // Quantidade máxima, "0" = sem limite (antigo: amount)
+  transferFee?: number; // Taxa de transferência em basis points (0-50000)
+  // Metadados
+  metadata?: MPTokenMetadata; // Será convertido para MPTokenMetadata (hex)
+  // Flags de configuração
+  flags?: {
+    requireAuth?: boolean; // tfMPTRequireAuth (0x00000004)
+    canTransfer?: boolean; // tfMPTCanTransfer (0x00000020)
+    canLock?: boolean; // tfMPTCanLock (0x00000002)
+    canEscrow?: boolean; // tfMPTCanEscrow (0x00000008)
+    canTrade?: boolean; // tfMPTCanTrade (0x00000010)
+    canClawback?: boolean; // tfMPTCanClawback (0x00000040)
+  };
+  // Compatibilidade: campos antigos (deprecated)
+  /** @deprecated Use assetScale instead */
+  decimals?: number;
+  /** @deprecated Use maximumAmount instead */
+  amount?: string;
+  /** @deprecated Use flags.canTransfer instead */
   transferable?: boolean;
-  metadata?: MPTokenMetadata;
+  /** @deprecated Use currency apenas para referência, não é enviado na transação */
+  currency?: string;
 }
 
 export interface MPTokenAuthorizeParams {
-  issuer: string;
-  currency: string;
+  // Identificação do token (preferência: MPTokenIssuanceID)
+  mptokenIssuanceID?: string; // Hex do MPTokenIssuanceID (recomendado)
+  // OU identificação por Currency + Issuer (legado/compatibilidade)
+  currency?: string;
+  issuer?: string;
+  // Dados da transação
   holder: string;
-  authorize: boolean;
+  authorize: boolean; // true = autorizar, false = desautorizar
+  // Account que executa (pode ser issuer ou holder dependendo do caso)
+  account?: string; // Se não fornecido, usa issuer
 }
 
 export interface MPTokenFreezeParams {
@@ -52,17 +77,99 @@ export interface TrustSetParams {
 }
 
 export function extractTransactionHash(response: unknown): string | null {
-  if (!response || typeof response !== 'object') return null;
+  if (!response || typeof response !== 'object') {
+    console.warn('[extractTransactionHash] Response não é um objeto:', response);
+    return null;
+  }
 
   const obj = response as Record<string, any>;
-  return (
+  
+  // Log da estrutura completa para debug (apenas em dev)
+  if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+    console.log('[extractTransactionHash] Estrutura completa da resposta:', obj);
+  }
+
+  // Tenta múltiplos caminhos possíveis na resposta da Crossmark
+  // Baseado na estrutura real: { request: {...}, response: {...}, createdAt, resolvedAt }
+  // E estrutura interna: response.response.data.result.hash
+  const hash = 
+    // Estrutura Crossmark SDK v0.4.0+ - caminhos mais profundos primeiro
+    obj?.response?.response?.data?.hash ??
+    obj?.response?.response?.data?.result?.hash ??
+    obj?.response?.response?.data?.result?.tx_json?.hash ??
+    obj?.response?.response?.hash ??
+    obj?.response?.response?.result?.hash ??
+    // Estrutura Crossmark SDK v0.4.0+ (response.data...)
+    obj?.response?.data?.hash ??
+    obj?.response?.data?.result?.hash ??
+    obj?.response?.data?.result?.tx_json?.hash ??
+    obj?.response?.data?.tx_json?.hash ??
+    obj?.response?.hash ??
+    obj?.response?.result?.hash ??
+    // Estrutura direta (legado)
     obj?.data?.hash ??
     obj?.data?.result?.hash ??
     obj?.data?.result?.tx_json?.hash ??
     obj?.data?.tx_json?.hash ??
+    obj?.data?.response?.hash ??
+    obj?.data?.response?.result?.hash ??
+    // Estrutura alternativa
     obj?.result?.hash ??
-    null
-  );
+    obj?.hash ??
+    // Se a resposta tem request/response aninhados
+    obj?.request?.response?.data?.hash ??
+    obj?.request?.response?.hash ??
+    null;
+  
+  // Se não encontrou hash mas tem txBlob, log para debug
+  if (!hash) {
+    const txBlob = 
+      obj?.response?.response?.data?.txBlob ??
+      obj?.response?.data?.txBlob ??
+      obj?.data?.txBlob ??
+      obj?.txBlob;
+    
+    if (txBlob && typeof txBlob === 'string') {
+      // Hash geralmente vem na resposta, se não vier pode ser calculado depois
+      // ou buscado via tx() command na XRPL
+      if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+        console.log('[extractTransactionHash] txBlob encontrado, mas hash não encontrado na resposta');
+      }
+    }
+  }
+
+  if (!hash) {
+    // Log detalhado para debug
+    const debugInfo: any = {
+      keys: Object.keys(obj),
+      dataKeys: obj?.data ? Object.keys(obj.data) : null,
+      responseKeys: obj?.response ? Object.keys(obj.response) : null,
+      resultKeys: obj?.result ? Object.keys(obj.result) : null,
+    };
+    
+    // Se tem response, explora mais
+    if (obj?.response) {
+      debugInfo.responseType = typeof obj.response;
+      if (typeof obj.response === 'object') {
+        debugInfo.responseKeys = Object.keys(obj.response);
+        if (obj.response.data) {
+          debugInfo.responseDataKeys = Object.keys(obj.response.data);
+        }
+        if (obj.response.result) {
+          debugInfo.responseResultKeys = Object.keys(obj.response.result);
+        }
+      }
+    }
+    
+    console.error('[extractTransactionHash] Hash não encontrado. Estrutura da resposta:', debugInfo);
+    
+    // Tenta extrair informações úteis para debug
+    if (obj?.response) {
+      console.error('[extractTransactionHash] Conteúdo de response:', obj.response);
+    }
+  }
+
+  return hash;
 }
 
 function stringToHex(input: string): string {
@@ -83,24 +190,75 @@ function buildMetadataMemo(metadata: MPTokenMetadata) {
   };
 }
 
+/**
+ * Converte flags para número inteiro
+ */
+function flagsToInt(flags?: MPTokenIssuanceParams['flags']): number {
+  if (!flags) return 0;
+  
+  let result = 0;
+  if (flags.requireAuth) result |= 0x00000004; // tfMPTRequireAuth
+  if (flags.canTransfer) result |= 0x00000020; // tfMPTCanTransfer
+  if (flags.canLock) result |= 0x00000002; // tfMPTCanLock
+  if (flags.canEscrow) result |= 0x00000008; // tfMPTCanEscrow
+  if (flags.canTrade) result |= 0x00000010; // tfMPTCanTrade
+  if (flags.canClawback) result |= 0x00000040; // tfMPTCanClawback
+  
+  return result;
+}
+
+/**
+ * Converte metadados para formato hex do MPTokenMetadata
+ */
+function metadataToHex(metadata: MPTokenMetadata): string {
+  const json = JSON.stringify(metadata);
+  return Buffer.from(json, 'utf-8').toString('hex').toUpperCase();
+}
+
 export function buildMPTokenIssuanceTransaction({
   issuer,
-  currency,
-  amount,
-  decimals,
-  transferable = true,
+  assetScale,
+  maximumAmount,
+  transferFee,
   metadata,
+  flags,
+  // Compatibilidade com campos antigos
+  decimals,
+  amount,
+  transferable,
 }: MPTokenIssuanceParams) {
+  // Usa campos novos ou fallback para antigos (compatibilidade)
+  const finalAssetScale = assetScale ?? decimals ?? 0;
+  const finalMaximumAmount = maximumAmount ?? amount ?? '0';
+  const finalTransferFee = transferFee ?? 0;
+  
+  // Constrói flags
+  let finalFlags = flagsToInt(flags);
+  
+  // Compatibilidade: se transferable foi passado, adiciona flag
+  if (transferable !== undefined && transferable) {
+    finalFlags |= 0x00000020; // tfMPTCanTransfer
+  }
+  
   const transaction: Record<string, unknown> = {
     TransactionType: 'MPTokenIssuanceCreate',
     Account: issuer,
-    Currency: currency.toUpperCase(),
-    Amount: amount,
-    Decimals: decimals,
-    Transferable: transferable,
+    AssetScale: finalAssetScale,
+    MaximumAmount: finalMaximumAmount,
+    TransferFee: finalTransferFee,
   };
 
+  // Adiciona flags se houver
+  if (finalFlags > 0) {
+    transaction.Flags = finalFlags;
+  }
+
+  // Adiciona metadados (preferência: MPTokenMetadata, fallback: Memos)
   if (metadata) {
+    // Usa campo dedicado MPTokenMetadata (mais eficiente)
+    transaction.MPTokenMetadata = metadataToHex(metadata);
+    
+    // Também adiciona em Memos para compatibilidade/legado
     transaction.Memos = [buildMetadataMemo(metadata)];
   }
 
@@ -108,18 +266,37 @@ export function buildMPTokenIssuanceTransaction({
 }
 
 export function buildMPTokenAuthorizeTransaction({
-  issuer,
+  mptokenIssuanceID,
   currency,
+  issuer,
   holder,
   authorize,
+  account,
 }: MPTokenAuthorizeParams) {
-  return {
+  const transaction: Record<string, unknown> = {
     TransactionType: 'MPTokenAuthorize',
-    Account: issuer,
-    Currency: currency.toUpperCase(),
+    Account: account ?? issuer ?? holder, // Account pode ser issuer ou holder
     Holder: holder,
-    Authorize: authorize,
   };
+
+  // Preferência: usar MPTokenIssuanceID (padrão moderno)
+  if (mptokenIssuanceID) {
+    transaction.MPTokenIssuanceID = mptokenIssuanceID;
+  } 
+  // Fallback: usar Currency + Issuer (legado/compatibilidade)
+  else if (currency && issuer) {
+    transaction.Currency = currency.toUpperCase();
+    transaction.Issuer = issuer;
+  } else {
+    throw new Error('MPTokenAuthorize requer MPTokenIssuanceID OU (Currency + Issuer)');
+  }
+
+  // Flags: se authorize = false, usa flag tfMPTUnauthorize
+  if (!authorize) {
+    transaction.Flags = 0x00000001; // tfMPTUnauthorize
+  }
+
+  return transaction;
 }
 
 export function buildMPTokenFreezeTransaction({
@@ -325,24 +502,11 @@ export async function signAndSubmitTransaction(
     throw new Error(`TransactionType deve ser uma string. Recebido: ${typeof txJson.TransactionType}`);
   }
 
-  console.log('[Crossmark] Enviando transação:', {
-    TransactionType: txJson.TransactionType,
-    Account: txJson.Account,
-    Destination: txJson.Destination,
-    Amount: txJson.Amount,
-    hasMemos: !!txJson.Memos,
-  });
-
-  // Verificar se a transação está no formato correto antes de enviar
-  if (!txJson.Account) {
-    throw new Error('Transação deve ter Account definido');
-  }
-
   try {
     const response = await sdk.async.signAndSubmitAndWait({
       tx_json: txJson,
-      autofill: true, // Crossmark faz autofill automaticamente
-      failHard: false, // Mudar para false para não falhar rápido demais
+      autofill: true,
+      failHard: true,
       timeout: options?.timeout ?? 60000,
     });
 
@@ -350,23 +514,63 @@ export async function signAndSubmitTransaction(
       throw new Error('Não foi possível obter a resposta da Crossmark.');
     }
 
+    // Log da resposta completa para debug
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[Crossmark] Resposta completa:', JSON.stringify(response, null, 2));
+    }
+
     // Verificar status da transação
-    const status = (response as any)?.data?.result?.engine_result;
+    const status = 
+      (response as any)?.data?.result?.engine_result ??
+      (response as any)?.data?.engine_result ??
+      (response as any)?.result?.engine_result ??
+      (response as any)?.engine_result;
+
     if (status && !status.startsWith('tes')) {
-      throw new Error(`Transação falhou: ${status}`);
+      const errorMessage = 
+        (response as any)?.data?.result?.engine_result_message ?? 
+        (response as any)?.data?.message ?? 
+        (response as any)?.message ??
+        `Transação falhou: ${status}`;
+      throw new Error(errorMessage);
+    }
+
+    // Verifica se tem hash na resposta (apenas log, não falha)
+    const hash = extractTransactionHash(response);
+    if (!hash) {
+      // Log detalhado para debug
+      const responseObj = response as any;
+      console.warn('[Crossmark] Resposta não contém hash detectável. Estrutura:', {
+        keys: Object.keys(responseObj),
+        hasData: !!responseObj?.data,
+        hasResponse: !!responseObj?.response,
+        hasResult: !!responseObj?.result,
+        responseType: typeof responseObj?.response,
+        responseKeys: responseObj?.response ? Object.keys(responseObj.response) : null,
+      });
+      
+      // Tenta extrair hash de outras formas
+      if (responseObj?.response) {
+        console.log('[Crossmark] Explorando response:', responseObj.response);
+      }
+    } else {
+      console.log('[Crossmark] Hash extraído com sucesso:', hash);
     }
 
     return response;
   } catch (error: any) {
-    // Log detalhado do erro para debug
-    console.error('[Crossmark] Erro ao enviar transação:', {
-      error: error.message,
-      transaction: {
-        TransactionType: txJson.TransactionType,
-        Account: txJson.Account,
-        Destination: txJson.Destination,
-      },
-    });
+    // Se o erro é de rejeição do usuário, lança erro mais claro
+    if (
+      error?.message?.toLowerCase().includes('rejected') || 
+      error?.message?.toLowerCase().includes('canceled') || 
+      error?.message?.toLowerCase().includes('cancelled') ||
+      error?.code === 'USER_REJECTED'
+    ) {
+      throw new Error('Transação cancelada pelo usuário');
+    }
+    
+    // Log do erro completo
+    console.error('[Crossmark] Erro ao enviar transação:', error);
     throw error;
   }
 }
