@@ -221,10 +221,10 @@ export default function Home() {
         targetAmount: '',
       });
       setShowCreateModal(false);
-      
+
       // Atualizar lista de projetos
       await fetchAdminProjects();
-      
+
       alert('Projeto criado com sucesso!');
     } catch (error: any) {
       alert(error.message || 'Erro ao criar projeto');
@@ -260,7 +260,7 @@ export default function Home() {
     <main className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-100 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 transition-colors duration-300 relative overflow-hidden">
       <BackgroundParticles />
       <ThemeToggle />
-      
+
       <div className="container mx-auto px-4 py-8 md:py-12">
         {/* Header */}
         <motion.div
@@ -289,11 +289,10 @@ export default function Home() {
         >
           <button
             onClick={() => setSelectedRole('investidor')}
-            className={`px-6 py-3 rounded-xl font-semibold transition-all duration-300 transform hover:scale-105 ${
-              selectedRole === 'investidor'
-                ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/50 dark:bg-blue-500 dark:shadow-blue-400/50'
-                : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 shadow-md hover:shadow-lg'
-            }`}
+            className={`px-6 py-3 rounded-xl font-semibold transition-all duration-300 transform hover:scale-105 ${selectedRole === 'investidor'
+              ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/50 dark:bg-blue-500 dark:shadow-blue-400/50'
+              : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 shadow-md hover:shadow-lg'
+              }`}
           >
             <div className="flex items-center gap-2">
               <TrendingUp className="w-5 h-5" />
@@ -302,11 +301,10 @@ export default function Home() {
           </button>
           <button
             onClick={() => setSelectedRole('administrador')}
-            className={`px-6 py-3 rounded-xl font-semibold transition-all duration-300 transform hover:scale-105 ${
-              selectedRole === 'administrador'
-                ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/50 dark:bg-blue-500 dark:shadow-blue-400/50'
-                : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 shadow-md hover:shadow-lg'
-            }`}
+            className={`px-6 py-3 rounded-xl font-semibold transition-all duration-300 transform hover:scale-105 ${selectedRole === 'administrador'
+              ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/50 dark:bg-blue-500 dark:shadow-blue-400/50'
+              : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 shadow-md hover:shadow-lg'
+              }`}
           >
             <div className="flex items-center gap-2">
               <Shield className="w-5 h-5" />
@@ -401,101 +399,101 @@ export default function Home() {
                 )}
               </div>
 
-                {!isInstalled && !isConnected && !isWalletLoading && (
-                  <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-lg">
-                    <p className="text-sm text-blue-700 dark:text-blue-300">
-                      A extensão Crossmark não foi detectada. Baixe em{' '}
-                      <a
-                        className="underline hover:text-blue-600 dark:hover:text-blue-400"
-                        href="https://www.crossmark.io/download"
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        crossmark.io/download
-                      </a>{' '}
-                      e tente novamente.
-                    </p>
-                  </div>
-                )}
+              {!isInstalled && !isConnected && !isWalletLoading && (
+                <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-lg">
+                  <p className="text-sm text-blue-700 dark:text-blue-300">
+                    A extensão Crossmark não foi detectada. Baixe em{' '}
+                    <a
+                      className="underline hover:text-blue-600 dark:hover:text-blue-400"
+                      href="https://www.crossmark.io/download"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      crossmark.io/download
+                    </a>{' '}
+                    e tente novamente.
+                  </p>
+                </div>
+              )}
 
-                {crossmarkError && (
-                  <div className="mt-4 p-4 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-700 rounded-lg">
-                    <div className="flex items-start gap-3 text-red-700 dark:text-red-300">
-                      <AlertCircle className="w-5 h-5 mt-1" />
-                      <p className="text-sm">{crossmarkError}</p>
+              {crossmarkError && (
+                <div className="mt-4 p-4 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-700 rounded-lg">
+                  <div className="flex items-start gap-3 text-red-700 dark:text-red-300">
+                    <AlertCircle className="w-5 h-5 mt-1" />
+                    <p className="text-sm">{crossmarkError}</p>
+                  </div>
+                </div>
+              )}
+
+              {isConnected && account && (
+                <div className="mt-6 p-4 bg-gray-50 dark:bg-gray-700/50 rounded-xl border border-gray-200 dark:border-gray-600">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Rede</p>
+                      <p className="font-semibold text-gray-800 dark:text-white capitalize">
+                        {account.network}
+                      </p>
                     </div>
-                  </div>
-                )}
-
-                {isConnected && account && (
-                  <div className="mt-6 p-4 bg-gray-50 dark:bg-gray-700/50 rounded-xl border border-gray-200 dark:border-gray-600">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {xrpBalance !== null && (
                       <div>
-                        <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Rede</p>
-                        <p className="font-semibold text-gray-800 dark:text-white capitalize">
-                          {account.network}
+                        <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Saldo XRP</p>
+                        <p className="font-semibold text-gray-800 dark:text-white">
+                          {xrpBalance.toFixed(2)} XRP
                         </p>
-                      </div>
-                      {xrpBalance !== null && (
-                        <div>
-                          <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Saldo XRP</p>
-                          <p className="font-semibold text-gray-800 dark:text-white">
-                            {xrpBalance.toFixed(2)} XRP
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {isConnected && (
-                  <div className="mt-6">
-                    <h3 className="text-lg font-semibold text-gray-800 dark:text-white mb-4">
-                      Seus Tokens MPT
-                    </h3>
-                    {loadingTokens ? (
-                      <div className="flex justify-center py-8">
-                        <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                      </div>
-                    ) : tokensError ? (
-                      <div className="flex items-start gap-3 p-4 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-700 rounded-lg text-red-700 dark:text-red-300">
-                        <AlertCircle className="w-5 h-5 mt-1" />
-                        <p className="text-sm">{tokensError}</p>
-                      </div>
-                    ) : mptokens.length > 0 ? (
-                      <div className="space-y-3">
-                        {mptokens.map((token, index) => (
-                          <div
-                            key={`${token.currency}-${token.issuer}-${index}`}
-                            className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-600"
-                          >
-                            <div className="flex justify-between items-center">
-                              <div>
-                                <p className="font-semibold text-gray-800 dark:text-white">
-                                  {token.currency}
-                                </p>
-                                <p className="text-sm text-gray-500 dark:text-gray-400">
-                                  {token.issuer}
-                                </p>
-                              </div>
-                              <p className="text-lg font-bold text-blue-600 dark:text-blue-400">
-                                {parseFloat(token.balance).toLocaleString('pt-BR', {
-                                  minimumFractionDigits: 2,
-                                  maximumFractionDigits: 6,
-                                })}
-                              </p>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-                        <Coins className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                        <p>Nenhum token MPT encontrado</p>
                       </div>
                     )}
                   </div>
-                )}
+                </div>
+              )}
+
+              {isConnected && (
+                <div className="mt-6">
+                  <h3 className="text-lg font-semibold text-gray-800 dark:text-white mb-4">
+                    Seus Tokens MPT
+                  </h3>
+                  {loadingTokens ? (
+                    <div className="flex justify-center py-8">
+                      <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                    </div>
+                  ) : tokensError ? (
+                    <div className="flex items-start gap-3 p-4 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-700 rounded-lg text-red-700 dark:text-red-300">
+                      <AlertCircle className="w-5 h-5 mt-1" />
+                      <p className="text-sm">{tokensError}</p>
+                    </div>
+                  ) : mptokens.length > 0 ? (
+                    <div className="space-y-3">
+                      {mptokens.map((token, index) => (
+                        <div
+                          key={`${token.currency}-${token.issuer}-${index}`}
+                          className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-600"
+                        >
+                          <div className="flex justify-between items-center">
+                            <div>
+                              <p className="font-semibold text-gray-800 dark:text-white">
+                                {token.currency}
+                              </p>
+                              <p className="text-sm text-gray-500 dark:text-gray-400">
+                                {token.issuer}
+                              </p>
+                            </div>
+                            <p className="text-lg font-bold text-blue-600 dark:text-blue-400">
+                              {parseFloat(token.balance).toLocaleString('pt-BR', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 6,
+                              })}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                      <Coins className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                      <p>Nenhum token MPT encontrado</p>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Animated Wallet Icon */}
               <div className="mt-8 flex justify-center">
@@ -676,7 +674,7 @@ export default function Home() {
                 {adminProjects.map((project, index) => {
                   const Icon = typeIcons[project.type as keyof typeof typeIcons] || Mountain;
                   const colorClass = typeColors[project.type as keyof typeof typeColors] || 'from-blue-400 to-blue-600';
-                  
+
                   return (
                     <motion.div
                       key={project.id}
