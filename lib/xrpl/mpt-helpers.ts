@@ -12,9 +12,114 @@
  * - https://xrpl.org/mptokenissuancecreate.html
  */
 
-import { Client, Wallet } from 'xrpl';
+import { Wallet } from 'xrpl';
 import { xrplPool, type XRPLNetwork } from './pool';
 import { ReliableSubmission } from './reliable-submission';
+import type { MPTokenMetadata } from '../crossmark/types';
+
+function stringToHex(input: string): string {
+  const encoder = new TextEncoder();
+  return Array.from(encoder.encode(input))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('')
+    .toUpperCase();
+}
+
+function buildMetadataMemo(metadata: MPTokenMetadata) {
+  const json = JSON.stringify(metadata);
+  return {
+    Memo: {
+      MemoType: stringToHex('XLS-89'),
+      MemoData: stringToHex(json),
+    },
+  };
+}
+
+export type MPTTokenType = 'land' | 'build' | 'rev' | 'col';
+
+const DEFAULT_ICON_URL = 'https://terra.fi/assets/token-placeholder.png';
+const DEFAULT_WEBSITE = 'https://terra.fi';
+const ISSUER_NAME = 'Terra.Fi';
+
+function pickDefined<T extends object>(value: T): T {
+  const cleaned = Object.entries(value).reduce<Record<string, unknown>>((acc, [key, val]) => {
+    if (val !== undefined && val !== null) {
+      acc[key] = val;
+    }
+    return acc;
+  }, {});
+  return cleaned as T;
+}
+
+export function buildDefaultMetadata(
+  tokenType: MPTTokenType,
+  overrides: Record<string, unknown> = {},
+): MPTokenMetadata {
+  const base = {
+    ac: 'rwa',
+    i: DEFAULT_ICON_URL,
+    u: DEFAULT_WEBSITE,
+    in: ISSUER_NAME,
+  };
+
+  const perType: Record<MPTTokenType, Record<string, unknown>> = {
+    land: {
+      t: 'LAND',
+      n: 'Terra.Fi Land Token',
+      d: 'Fractionalized land parcel tokenized on Terra.Fi',
+      parcel_id: overrides.parcel_id ?? 'VIVERDE-PARCEL-001',
+      geo: overrides.geo ?? { lat: -22.8898, lng: -43.2799 },
+      valuation: overrides.valuation ?? { currency: 'BRL', amount: '1000000' },
+    },
+    build: {
+      t: 'BUILD',
+      n: 'Terra.Fi Build Tranche',
+      d: 'Construction CAPEX tranche linked to a land asset',
+      phase_index: overrides.phase_index ?? 1,
+      capex_goal: overrides.capex_goal ?? { currency: 'BRL', amount: '250000' },
+      oracle_milestone: overrides.oracle_milestone ?? 'foundation_complete',
+      origin_land: overrides.origin_land ?? 'LAND:VIVERDE-PARCEL-001',
+    },
+    rev: {
+      t: 'REV',
+      n: 'Terra.Fi Revenue Share',
+      d: 'Revenue distribution token for tokenized assets',
+      origin_asset: overrides.origin_asset ?? 'LAND:VIVERDE-PARCEL-001',
+      distribution_policy: overrides.distribution_policy ?? {
+        frequency: 'monthly',
+        percentage: 0.12,
+        payout_wallet: 'rPayoutWalletXXXXXXXXXXXXXXXXXXXXXX',
+      },
+    },
+    col: {
+      t: 'COL',
+      n: 'Terra.Fi Collateral Token',
+      d: 'Collateral representation of locked Terra.Fi assets',
+      backing_asset: overrides.backing_asset ?? 'LAND:VIVERDE-PARCEL-001',
+      haircut: overrides.haircut ?? 0.2,
+      owner_wallet: overrides.owner_wallet ?? 'rOwnerWalletXXXXXXXXXXXXXXXXXXXXXX',
+      lock_policy: overrides.lock_policy ?? { type: 'loan', unlock_condition: 'loan_repaid' },
+    },
+  };
+
+  const merged = {
+    ...base,
+    ...perType[tokenType],
+    ...overrides,
+  };
+
+  // Garantir que 'name' existe (mapear de 'n' se necessário)
+  const cleaned = pickDefined(merged) as any;
+  if (!cleaned.name && cleaned.n) {
+    cleaned.name = cleaned.n;
+  }
+  // Se ainda não tem name, usar um padrão baseado no tipo
+  if (!cleaned.name) {
+    cleaned.name = `Terra.Fi ${tokenType.toUpperCase()} Token`;
+  }
+
+  return cleaned as MPTokenMetadata;
+}
 
 /**
  * Interface para criar um MPT (MPTokenIssuanceCreate)
@@ -31,13 +136,11 @@ export interface CreateMPTParams {
   /** Taxa de transferência em basis points (0-50000, ex: 100 = 1%) */
   transferFee?: number;
   /** Metadados do token (JSON que será convertido para hex) */
-  metadata?: {
-    name: string;
-    symbol?: string;
-    description?: string;
-    image?: string;
-    [key: string]: any;
-  };
+  metadata?: MPTokenMetadata;
+  /** Tipo do token Terra.Fi (LAND, BUILD, REV, COL) */
+  tokenType?: MPTTokenType;
+  /** Sobrescrita de campos padrão do metadata */
+  metadataOverrides?: Record<string, unknown>;
   /** Flags do MPT */
   flags?: {
     requireAuth?: boolean;      // Requer autorização para holder (tfMPTRequireAuth = 0x00000004)
@@ -149,6 +252,10 @@ function metadataToHex(metadata: Record<string, any>): string {
 export async function createMPT(params: CreateMPTParams): Promise<{
   mptokenIssuanceID: string;
   txHash: string;
+  currency?: string | null;
+  ticker?: string | null;
+  metadata?: MPTokenMetadata;
+  tokenType?: MPTTokenType;
   result: any;
 }> {
   const {
@@ -158,6 +265,8 @@ export async function createMPT(params: CreateMPTParams): Promise<{
     maximumAmount = '0',
     transferFee = 0,
     metadata,
+    tokenType,
+    metadataOverrides,
     flags,
     network = 'testnet'
   } = params;
@@ -196,8 +305,12 @@ export async function createMPT(params: CreateMPTParams): Promise<{
   }
 
   // Adicionar metadados
-  if (metadata) {
-    transaction.MPTokenMetadata = metadataToHex(metadata);
+  const resolvedMetadata: MPTokenMetadata | undefined =
+    metadata ?? (tokenType ? buildDefaultMetadata(tokenType, metadataOverrides) : undefined);
+
+  if (resolvedMetadata) {
+    transaction.MPTokenMetadata = metadataToHex(resolvedMetadata);
+    transaction.Memos = [buildMetadataMemo(resolvedMetadata)];
   }
 
   // Autofill (adiciona Fee, Sequence, etc)
@@ -256,9 +369,26 @@ export async function createMPT(params: CreateMPTParams): Promise<{
     throw new Error('Não foi possível extrair MPTokenIssuanceID da resposta. Verifique o meta da transação.');
   }
 
+  let currency: string | null | undefined = null;
+  try {
+    const ledgerEntry = await client.request({
+      command: 'ledger_entry',
+      mpt_issuance_id: mptokenIssuanceID,
+      ledger_index: 'validated',
+    });
+    const node = (ledgerEntry.result.node as any) ?? (ledgerEntry.result as any).MPTokenIssuance ?? ledgerEntry.result;
+    currency = node?.Currency ?? null;
+  } catch (ledgerError) {
+    console.warn('[createMPT] Falha ao obter informações do MPT recém emitido:', ledgerError);
+  }
+
   return {
     mptokenIssuanceID,
     txHash,
+    currency,
+    ticker: currency ?? (resolvedMetadata?.t as string | undefined) ?? null,
+    metadata: resolvedMetadata,
+    tokenType,
     result: result.result,
   };
 }
@@ -559,5 +689,135 @@ export async function getMPTBalance(
     console.error('Erro ao buscar saldo MPT:', error);
     return '0';
   }
+}
+
+export interface FreezeMPTParams {
+  issuerAddress: string;
+  issuerSeed: string;
+  currency: string;
+  holderAddress: string;
+  freeze?: boolean;
+  network?: XRPLNetwork;
+}
+
+export async function freezeMPT(params: FreezeMPTParams): Promise<string> {
+  const {
+    issuerAddress,
+    issuerSeed,
+    currency,
+    holderAddress,
+    freeze = true,
+    network = 'testnet',
+  } = params;
+
+  if (!issuerAddress || !issuerAddress.startsWith('r')) {
+    throw new Error('issuerAddress inválido');
+  }
+
+  if (!issuerSeed) {
+    throw new Error('issuerSeed é obrigatório');
+  }
+
+  if (!currency) {
+    throw new Error('currency é obrigatório');
+  }
+
+  if (!holderAddress || !holderAddress.startsWith('r')) {
+    throw new Error('holderAddress inválido');
+  }
+
+  const wallet = Wallet.fromSeed(issuerSeed);
+  if (wallet.classicAddress !== issuerAddress && wallet.address !== issuerAddress) {
+    throw new Error('issuerSeed não corresponde ao issuerAddress');
+  }
+
+  const client = await xrplPool.getClient(network);
+
+  const transaction: Record<string, any> = {
+    TransactionType: 'MPTokenFreeze',
+    Account: issuerAddress,
+    Currency: currency.toUpperCase(),
+    Holder: holderAddress,
+    Freeze: freeze,
+  };
+
+  const prepared = await client.autofill(transaction);
+  const signed = wallet.sign(prepared);
+  const rs = new ReliableSubmission(network);
+  const result = await rs.submitAndWait(signed.tx_blob);
+
+  const txResult = result.result.meta?.TransactionResult || (result.result as any).engine_result;
+  if (txResult && !txResult.startsWith('tes')) {
+    throw new Error(`Transação falhou: ${txResult}`);
+  }
+
+  return result.result.tx_json?.hash || (result.result as any).hash;
+}
+
+export interface ClawbackMPTParams {
+  issuerAddress: string;
+  issuerSeed: string;
+  currency: string;
+  holderAddress: string;
+  amount: string;
+  network?: XRPLNetwork;
+}
+
+export async function clawbackMPT(params: ClawbackMPTParams): Promise<string> {
+  const {
+    issuerAddress,
+    issuerSeed,
+    currency,
+    holderAddress,
+    amount,
+    network = 'testnet',
+  } = params;
+
+  if (!issuerAddress || !issuerAddress.startsWith('r')) {
+    throw new Error('issuerAddress inválido');
+  }
+
+  if (!issuerSeed) {
+    throw new Error('issuerSeed é obrigatório');
+  }
+
+  if (!currency) {
+    throw new Error('currency é obrigatório');
+  }
+
+  if (!holderAddress || !holderAddress.startsWith('r')) {
+    throw new Error('holderAddress inválido');
+  }
+
+  if (!amount) {
+    throw new Error('amount é obrigatório');
+  }
+
+  const wallet = Wallet.fromSeed(issuerSeed);
+  if (wallet.classicAddress !== issuerAddress && wallet.address !== issuerAddress) {
+    throw new Error('issuerSeed não corresponde ao issuerAddress');
+  }
+
+  const client = await xrplPool.getClient(network);
+
+  const transaction: Record<string, any> = {
+    TransactionType: 'MPTokenClawback',
+    Account: issuerAddress,
+    Currency: currency.toUpperCase(),
+    Holder: holderAddress,
+    Amount: amount,
+  };
+
+  const prepared = await client.autofill(transaction);
+  const signed = wallet.sign(prepared);
+  const rs = new ReliableSubmission(network);
+  const result = await rs.submitAndWait(signed.tx_blob);
+
+  const txResult = result.result.meta?.TransactionResult || (result.result as any).engine_result;
+  if (txResult && !txResult.startsWith('tes')) {
+    throw new Error(`Transação falhou: ${txResult}`);
+  }
+
+  return result.result.tx_json?.hash || (result.result as any).hash;
 }
 

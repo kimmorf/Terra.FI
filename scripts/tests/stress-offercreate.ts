@@ -281,26 +281,16 @@ async function runStressTest(
         await client.submitAndWait(signedIssuance.tx_blob);
 
         // Authorize
-<<<<<<< HEAD
         const authTx = {
-=======
-        const authorizeTx = {
->>>>>>> 7c4bd2de4e285cbff2f77948842579794d22de2e
           TransactionType: 'MPTokenAuthorize',
           Account: issuer.address,
           Currency: currency,
           Holder: investor.address,
           Authorize: true,
         };
-<<<<<<< HEAD
         const preparedAuth = await client.autofill(authTx);
         const signedAuth = issuer.sign(preparedAuth);
         await client.submitAndWait(signedAuth.tx_blob);
-=======
-        const preparedAuthorize = await client.autofill(authorizeTx);
-        const signedAuthorize = issuer.sign(preparedAuthorize);
-        await client.submitAndWait(signedAuthorize.tx_blob);
->>>>>>> 7c4bd2de4e285cbff2f77948842579794d22de2e
 
         // Enviar tokens
         const paymentTx = {

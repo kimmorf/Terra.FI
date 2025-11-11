@@ -28,6 +28,8 @@ export async function POST(request: NextRequest) {
       maximumAmount = '0',
       transferFee = 0,
       metadata,
+      metadataOverrides,
+      tokenType,
       flags,
       network = 'testnet'
     } = body;
@@ -54,6 +56,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (tokenType && !['land', 'build', 'rev', 'col'].includes(tokenType)) {
+      return NextResponse.json(
+        { error: 'tokenType inválido. Use: land, build, rev ou col.' },
+        { status: 400 }
+      );
+    }
+
     // Criar MPT
     const result = await createMPT({
       issuerAddress,
@@ -62,6 +71,8 @@ export async function POST(request: NextRequest) {
       maximumAmount,
       transferFee,
       metadata,
+      metadataOverrides,
+      tokenType,
       flags,
       network
     });
@@ -70,6 +81,10 @@ export async function POST(request: NextRequest) {
       success: true,
       mptokenIssuanceID: result.mptokenIssuanceID,
       txHash: result.txHash,
+      currency: result.currency,
+      ticker: result.ticker,
+      metadata: result.metadata,
+      tokenType: result.tokenType,
       result: result.result
     });
   } catch (error: any) {
