@@ -42,6 +42,14 @@ export interface MPTPaymentParams {
   memo?: string;
 }
 
+export interface TrustSetParams {
+  account: string;
+  currency: string;
+  issuer: string;
+  limit?: string;
+  flags?: number;
+}
+
 function stringToHex(input: string): string {
   const encoder = new TextEncoder();
   return Array.from(encoder.encode(input))
@@ -162,6 +170,30 @@ export function buildPaymentTransaction({
   return transaction;
 }
 
+export function buildTrustSetTransaction({
+  account,
+  currency,
+  issuer,
+  limit = '1000000000',
+  flags,
+}: TrustSetParams) {
+  const transaction: Record<string, unknown> = {
+    TransactionType: 'TrustSet',
+    Account: account,
+    LimitAmount: {
+      currency: currency.toUpperCase(),
+      issuer,
+      value: limit,
+    },
+  };
+
+  if (typeof flags === 'number') {
+    transaction.Flags = flags;
+  }
+
+  return transaction;
+}
+
 export async function signAndSubmitTransaction(transaction: Record<string, unknown>) {
   const sdk = getCrossmarkSDK();
   if (!sdk) {
@@ -202,6 +234,11 @@ export function clawbackMPToken(params: MPTokenClawbackParams) {
 
 export function sendMPToken(params: MPTPaymentParams) {
   const transaction = buildPaymentTransaction(params);
+  return signAndSubmitTransaction(transaction);
+}
+
+export function trustSetToken(params: TrustSetParams) {
+  const transaction = buildTrustSetTransaction(params);
   return signAndSubmitTransaction(transaction);
 }
 

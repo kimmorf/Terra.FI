@@ -78,6 +78,18 @@ Acesse: http://localhost:3000
 
 ---
 
+## 💱 Trading com Stablecoins (Testnet)
+
+1. Acesse `http://localhost:3000/tokens/trade`.
+2. Conecte sua Crossmark e selecione o stablecoin (ex.: `RLUSD` na Testnet).
+3. Configure a trustline (`TrustSet`) direto na interface.
+4. Envie o pagamento (`Payment`) para comprar LAND/BUILD/REV/COL.
+5. Para vender/amortizar, devolva o token ao emissor e aguarde liquidação manual.
+
+> Em redes de teste, utilize emissores fictícios presentes no menu. Ajuste valores/issuers conforme o ambiente que estiver usando.
+
+---
+
 ## 🌐 Deploy Online
 
 ### Vercel (Recomendado)

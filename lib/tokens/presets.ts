@@ -12,6 +12,7 @@ export interface TokenPreset {
     defaultSupply: string;
     highlights: string[];
     docs?: string;
+    issuerAddress?: string;
 }
 
 export const TOKEN_CONFIG: Record<string, { decimals: number; transferable: boolean }> = {
@@ -45,6 +46,7 @@ export const TOKEN_PRESETS: TokenPreset[] = [
             'Permite captação inicial para desenvolvimento imobiliário',
             'Compatível com metadados XLS-89 para registro público',
         ],
+        issuerAddress: 'rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe',
     },
     {
         id: 'BUILD',
@@ -68,6 +70,7 @@ export const TOKEN_PRESETS: TokenPreset[] = [
             'Permite tokenizar dívidas de construção',
             'Pode ser convertido em REV-MPT após entrega',
         ],
+        issuerAddress: 'rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe',
     },
     {
         id: 'REV',
@@ -91,6 +94,7 @@ export const TOKEN_PRESETS: TokenPreset[] = [
             'Integra com pools de liquidez no XRPL DEX',
             'Compatível com staking e reinvestimento automático',
         ],
+        issuerAddress: 'rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe',
     },
     {
         id: 'COL',
@@ -114,5 +118,6 @@ export const TOKEN_PRESETS: TokenPreset[] = [
             'Emissão não-transferível (Transferable = false)',
             'Suporte a callbacks de desenlace para liquidação',
         ],
+        issuerAddress: 'rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe',
     },
 ];

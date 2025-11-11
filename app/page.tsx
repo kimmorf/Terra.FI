@@ -417,6 +417,13 @@ export default function Home() {
               Criar Tokens MPT
             </Link>
             <Link
+              href="/tokens/trade"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 border border-gray-200 dark:border-gray-700 rounded-xl font-semibold shadow hover:shadow-md transition-all duration-300"
+            >
+              <Coins className="w-5 h-5" />
+              Trading Desk
+            </Link>
+            <Link
               href="/Terra_fi.md"
               className="inline-flex items-center gap-2 px-6 py-3 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 border border-gray-200 dark:border-gray-700 rounded-xl font-semibold shadow hover:shadow-md transition-all duration-300"
             >
