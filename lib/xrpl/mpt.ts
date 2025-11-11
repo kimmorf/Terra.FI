@@ -1,28 +1,7 @@
-import { Client } from 'xrpl';
-
-const XRPL_ENDPOINTS: Record<string, string> = {
-    mainnet: 'wss://xrplcluster.com',
-    testnet: 'wss://s.altnet.rippletest.net:51233',
-    devnet: 'wss://s.devnet.rippletest.net:51233',
-};
-
-function resolveEndpoint(network: string | undefined) {
-    return XRPL_ENDPOINTS[network ?? 'testnet'] ?? XRPL_ENDPOINTS.testnet;
-}
-
-async function withClient<T>(network: string | undefined, handler: (client: Client) => Promise<T>) {
-    const client = new Client(resolveEndpoint(network));
-
-    try {
-        await client.connect();
-        const result = await handler(client);
-        await client.disconnect();
-        return result;
-    } catch (error) {
-        await client.disconnect();
-        throw error;
-    }
-}
+import { isValidAddress } from 'xrpl';
+import { xrplPool, type XRPLNetwork } from './pool';
+import { withXRPLRetry } from '../utils/retry';
+import { cache } from '../utils/cache';
 
 export async function hasTrustLine(params: {
     account: string;
@@ -30,20 +9,37 @@ export async function hasTrustLine(params: {
     issuer: string;
     network?: string;
 }) {
-    const { account, currency, issuer, network } = params;
+    const { account, currency, issuer, network = 'testnet' } = params;
 
-    const result = await withClient(network, (client) =>
-        client.request({
+    if (!isValidAddress(account) || !isValidAddress(issuer)) {
+        throw new Error('Endereço XRPL inválido');
+    }
+
+    const cacheKey = `trustline:${network}:${account}:${currency}:${issuer}`;
+    const cached = cache.get<boolean>(cacheKey);
+    if (cached !== null) {
+        return cached;
+    }
+
+    const result = await withXRPLRetry(async () => {
+        const client = await xrplPool.getClient(network as XRPLNetwork);
+        const response = await client.request({
             command: 'account_lines',
             account,
             peer: issuer,
             ledger_index: 'validated',
-        }),
+        });
+        return response.result;
+    }, { maxAttempts: 3 });
+
+    const hasTrustLine = (result.lines ?? []).some(
+        (line: any) => line.currency?.toUpperCase() === currency.toUpperCase() && line.account === issuer
     );
 
-    return (
-        result.result.lines ?? []
-    ).some((line: any) => line.currency?.toUpperCase() === currency.toUpperCase() && line.account === issuer);
+    // Cachear por 10 segundos
+    cache.set(cacheKey, hasTrustLine, 10000);
+
+    return hasTrustLine;
 }
 
 export async function getTokenHolders(params: {
@@ -51,19 +47,36 @@ export async function getTokenHolders(params: {
     currency: string;
     network?: string;
 }) {
-    const { issuer, currency, network } = params;
+    const { issuer, currency, network = 'testnet' } = params;
 
-    const result = await withClient(network, (client) =>
-        client.request({
+    if (!isValidAddress(issuer)) {
+        throw new Error('Endereço XRPL inválido');
+    }
+
+    const cacheKey = `token_holders:${network}:${issuer}:${currency}`;
+    const cached = cache.get(cacheKey);
+    if (cached) {
+        return cached;
+    }
+
+    const result = await withXRPLRetry(async () => {
+        const client = await xrplPool.getClient(network as XRPLNetwork);
+        const response = await client.request({
             command: 'account_lines',
             account: issuer,
             ledger_index: 'validated',
-        }),
+        });
+        return response.result;
+    }, { maxAttempts: 3 });
+
+    const holders = (result.lines ?? []).filter(
+        (line: any) => line.currency?.toUpperCase() === currency.toUpperCase()
     );
 
-    return (result.result.lines ?? []).filter(
-        (line: any) => line.currency?.toUpperCase() === currency.toUpperCase(),
-    );
+    // Cachear por 10 segundos
+    cache.set(cacheKey, holders, 10000);
+
+    return holders;
 }
 
 export function calculateTotalSupply(lines: any[]): number {
@@ -77,36 +90,70 @@ export async function getAccountBalance(params: {
     issuer: string;
     network?: string;
 }) {
-    const { account, currency, issuer, network } = params;
+    const { account, currency, issuer, network = 'testnet' } = params;
 
-    const result = await withClient(network, (client) =>
-        client.request({
+    if (!isValidAddress(account) || !isValidAddress(issuer)) {
+        throw new Error('Endereço XRPL inválido');
+    }
+
+    const cacheKey = `account_balance:${network}:${account}:${currency}:${issuer}`;
+    const cached = cache.get<string>(cacheKey);
+    if (cached !== null) {
+        return cached;
+    }
+
+    const result = await withXRPLRetry(async () => {
+        const client = await xrplPool.getClient(network as XRPLNetwork);
+        const response = await client.request({
             command: 'account_lines',
             account,
             peer: issuer,
             ledger_index: 'validated',
-        }),
+        });
+        return response.result;
+    }, { maxAttempts: 3 });
+
+    const line = (result.lines ?? []).find(
+        (entry: any) => entry.currency?.toUpperCase() === currency.toUpperCase() && entry.account === issuer
     );
 
-    const line = (result.result.lines ?? []).find(
-        (entry: any) => entry.currency?.toUpperCase() === currency.toUpperCase() && entry.account === issuer,
-    );
+    const balance = line?.balance ?? '0';
 
-    return line?.balance ?? '0';
+    // Cachear por 5 segundos
+    cache.set(cacheKey, balance, 5000);
+
+    return balance;
 }
 
 export async function getAccountLines(params: { account: string; network?: string }) {
-    const { account, network } = params;
+    const { account, network = 'testnet' } = params;
 
-    const result = await withClient(network, (client) =>
-        client.request({
+    if (!isValidAddress(account)) {
+        throw new Error('Endereço XRPL inválido');
+    }
+
+    const cacheKey = `account_lines:${network}:${account}`;
+    const cached = cache.get(cacheKey);
+    if (cached) {
+        return cached;
+    }
+
+    const result = await withXRPLRetry(async () => {
+        const client = await xrplPool.getClient(network as XRPLNetwork);
+        const response = await client.request({
             command: 'account_lines',
             account,
             ledger_index: 'validated',
-        }),
-    );
+        });
+        return response.result;
+    }, { maxAttempts: 3 });
 
-    return result.result.lines ?? [];
+    const lines = result.lines ?? [];
+
+    // Cachear por 10 segundos
+    cache.set(cacheKey, lines, 10000);
+
+    return lines;
 }
 
 export async function getAccountTransactions(params: {
@@ -114,18 +161,25 @@ export async function getAccountTransactions(params: {
     network?: string;
     limit?: number;
 }) {
-    const { account, network, limit = 20 } = params;
+    const { account, network = 'testnet', limit = 20 } = params;
 
-    const result = await withClient(network, (client) =>
-        client.request({
+    if (!isValidAddress(account)) {
+        throw new Error('Endereço XRPL inválido');
+    }
+
+    // Não cachear transações (sempre buscar dados atualizados)
+    const result = await withXRPLRetry(async () => {
+        const client = await xrplPool.getClient(network as XRPLNetwork);
+        const response = await client.request({
             command: 'account_tx',
             account,
             ledger_index_min: -1,
             ledger_index_max: -1,
             limit,
             binary: false,
-        }),
-    );
+        });
+        return response.result;
+    }, { maxAttempts: 3 });
 
-    return result.result.transactions ?? [];
+    return result.transactions ?? [];
 }

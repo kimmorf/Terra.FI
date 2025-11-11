@@ -1,50 +1,61 @@
 // Utilitários para consultar informações de conta na XRPL
 
-import { Client } from 'xrpl';
-
-type XRPLNetwork = 'testnet' | 'mainnet' | 'devnet';
-
-const XRPL_ENDPOINTS: Record<XRPLNetwork, string> = {
-  testnet: 'wss://s.altnet.rippletest.net:51233',
-  mainnet: 'wss://xrplcluster.com',
-  devnet: 'wss://s.devnet.rippletest.net:51233',
-};
-
-async function withClient<T>(network: XRPLNetwork, handler: (client: Client) => Promise<T>) {
-  const endpoint = XRPL_ENDPOINTS[network] ?? XRPL_ENDPOINTS.testnet;
-  const client = new Client(endpoint);
-
-  try {
-    await client.connect();
-    const result = await handler(client);
-    await client.disconnect();
-    return result;
-  } catch (error) {
-    await client.disconnect();
-    throw error;
-  }
-}
+import { isValidAddress } from 'xrpl';
+import { xrplPool, type XRPLNetwork } from './pool';
+import { withXRPLRetry } from '../utils/retry';
+import { cache } from '../utils/cache';
+import { dropsToXrp } from '../utils/xrp-converter';
 
 /**
  * Obter informações de uma conta na XRPL
  */
 export async function getAccountInfo(address: string, network: XRPLNetwork = 'testnet') {
-  return withClient(network, async (client) => {
+  // Validar endereço
+  if (!isValidAddress(address)) {
+    throw new Error('Endereço XRPL inválido');
+  }
+
+  const cacheKey = `account_info:${network}:${address}`;
+  
+  // Tentar cache primeiro (TTL: 5 segundos)
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  // Buscar do XRPL
+  const result = await withXRPLRetry(async () => {
+    const client = await xrplPool.getClient(network);
     const response = await client.request({
       command: 'account_info',
       account: address,
       ledger_index: 'validated',
     });
-
     return response.result;
-  });
+  }, { maxAttempts: 3, initialDelay: 1000 });
+
+  // Cachear por 5 segundos
+  cache.set(cacheKey, result, 5000);
+
+  return result;
 }
 
 /**
  * Obter tokens MPT de uma conta
  */
 export async function getAccountMPTokens(address: string, network: XRPLNetwork = 'testnet') {
-  return withClient(network, async (client) => {
+  if (!isValidAddress(address)) {
+    throw new Error('Endereço XRPL inválido');
+  }
+
+  const cacheKey = `account_mpt:${network}:${address}`;
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  const result = await withXRPLRetry(async () => {
+    const client = await xrplPool.getClient(network);
     const accountLines = await client.request({
       command: 'account_lines',
       account: address,
@@ -54,14 +65,30 @@ export async function getAccountMPTokens(address: string, network: XRPLNetwork =
     return (
       accountLines.result.lines?.filter((line: any) => line.currency !== 'XRP') ?? []
     );
-  });
+  }, { maxAttempts: 3 });
+
+  // Cachear por 10 segundos
+  cache.set(cacheKey, result, 10000);
+
+  return result;
 }
 
 /**
  * Obter saldo XRP de uma conta
  */
 export async function getXRPBalance(address: string, network: XRPLNetwork = 'testnet') {
-  return withClient(network, async (client) => {
+  if (!isValidAddress(address)) {
+    throw new Error('Endereço XRPL inválido');
+  }
+
+  const cacheKey = `xrp_balance:${network}:${address}`;
+  const cached = cache.get<number>(cacheKey);
+  if (cached !== null) {
+    return cached;
+  }
+
+  const result = await withXRPLRetry(async () => {
+    const client = await xrplPool.getClient(network);
     const accountInfo = await client.request({
       command: 'account_info',
       account: address,
@@ -69,7 +96,13 @@ export async function getXRPBalance(address: string, network: XRPLNetwork = 'tes
     });
 
     const balanceDrops = accountInfo.result.account_data.Balance;
-    return parseFloat(balanceDrops) / 1_000_000;
-  });
+    // Usar conversão precisa
+    return parseFloat(dropsToXrp(balanceDrops));
+  }, { maxAttempts: 3 });
+
+  // Cachear por 5 segundos
+  cache.set(cacheKey, result, 5000);
+
+  return result;
 }
 

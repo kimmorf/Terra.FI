@@ -39,3 +39,7 @@ next-env.d.ts
 # prisma
 /prisma/migrations
 
+# test configs (contain secrets)
+/scripts/tests/config/accounts-*.json
+/scripts/tests/config/.env.*
+

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPrismaClient } from '@/lib/prisma';
 import { auth } from '@/lib/auth';
+import { isValidAddress } from 'xrpl';
+import { verifyTransaction } from '@/lib/xrpl/transactions';
 
 export const dynamic = 'force-dynamic';
 
@@ -65,6 +67,14 @@ export async function POST(request: NextRequest) {
     if (session?.user) {
       user = session.user;
     } else if (walletAddress) {
+      // Valida formato do endereço XRPL
+      if (!isValidAddress(walletAddress)) {
+        return NextResponse.json(
+          { error: 'Endereço de carteira XRPL inválido' },
+          { status: 400 }
+        );
+      }
+
       // Se não tem sessão, busca usuário pelo wallet address
       user = await prisma.user.findUnique({
         where: { walletAddress },
@@ -120,29 +130,73 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Criar investimento
-    const investment = await prisma.investment.create({
-      data: {
-        userId: user.id,
-        projectId,
-        amount,
-        xrpAmount: xrpAmount || null,
-        txHash: txHash || null,
-        status: 'confirmed', // Confirmado porque o pagamento XRP já foi enviado
-      },
-    });
+    // Verificar se transação foi confirmada (se txHash fornecido)
+    if (txHash) {
+      const verification = await verifyTransaction(txHash, 'testnet');
+      
+      if (!verification.confirmed) {
+        return NextResponse.json(
+          { error: `Transação não confirmada: ${verification.error || 'Transação não encontrada'}` },
+          { status: 400 }
+        );
+      }
 
-    // Atualizar total arrecadado do projeto
-    await prisma.investmentProject.update({
-      where: { id: projectId },
-      data: {
-        totalAmount: {
-          increment: amount,
+      if (verification.error) {
+        return NextResponse.json(
+          { error: `Transação falhou: ${verification.error}` },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Criar investimento e atualizar total arrecadado em transação atômica
+    const result = await prisma.$transaction(async (tx) => {
+      // Verifica se txHash já existe (idempotência)
+      if (txHash) {
+        const existing = await tx.investment.findFirst({
+          where: { txHash },
+        });
+        if (existing) {
+          return { investment: existing, isDuplicate: true };
+        }
+      }
+
+      // Cria investimento
+      const investment = await tx.investment.create({
+        data: {
+          userId: user.id,
+          projectId,
+          amount,
+          xrpAmount: xrpAmount || null,
+          txHash: txHash || null,
+          status: 'confirmed', // Confirmado porque o pagamento XRP já foi enviado
         },
-      },
+      });
+
+      // Atualiza total arrecadado do projeto de forma atômica
+      await tx.investmentProject.update({
+        where: { id: projectId },
+        data: {
+          totalAmount: {
+            increment: amount,
+          },
+        },
+      });
+
+      return { investment, isDuplicate: false };
     });
 
-    return NextResponse.json(investment, { status: 201 });
+    if (result.isDuplicate) {
+      return NextResponse.json(
+        { 
+          investment: result.investment,
+          message: 'Investimento já registrado para esta transação',
+        },
+        { status: 200 }
+      );
+    }
+
+    return NextResponse.json(result.investment, { status: 201 });
   } catch (error) {
     console.error('Erro ao criar investimento:', error);
     return NextResponse.json(

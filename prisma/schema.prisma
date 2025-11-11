@@ -12,14 +12,14 @@ datasource db {
 
 // Better Auth tables
 model User {
-  id            String    @id @default(cuid())
+  id            String       @id @default(cuid())
   name          String?
-  email         String?   @unique
-  emailVerified Boolean   @default(false)
+  email         String?      @unique
+  emailVerified Boolean      @default(false)
   image         String?
-  walletAddress String?   @unique // Endereço da carteira XRPL (Crossmark)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  walletAddress String?      @unique // Endereço da carteira XRPL (Crossmark)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
   accounts      Account[]
   sessions      Session[]
   investments   Investment[]
@@ -62,66 +62,164 @@ model VerificationToken {
 
 // Investment models
 model InvestmentProject {
-  id          String       @id @default(cuid())
-  name        String       // LAND-MPT, BUILD-MPT, REV-MPT, COL-MPT
-  type        String       // LAND, BUILD, REV, COL
-  description String?
-  purpose     String       // Propósito do token
-  example     String?      // Exemplo de uso
-  minAmount   Float        @default(0) // Valor mínimo de investimento
-  maxAmount   Float?       // Valor máximo de investimento
-  totalAmount Float        @default(0) // Total arrecadado
-  targetAmount Float       // Meta de arrecadação
-  status      String       @default("active") // active, completed, paused
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-  investments Investment[]
+  id           String       @id @default(cuid())
+  name         String // LAND-MPT, BUILD-MPT, REV-MPT, COL-MPT
+  type         String // LAND, BUILD, REV, COL
+  description  String?
+  purpose      String // Propósito do token
+  example      String? // Exemplo de uso
+  minAmount    Float        @default(0) // Valor mínimo de investimento
+  maxAmount    Float? // Valor máximo de investimento
+  totalAmount  Float        @default(0) // Total arrecadado
+  targetAmount Float // Meta de arrecadação
+  status       String       @default("active") // active, completed, paused
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  investments  Investment[]
 }
 
 model Investment {
-  id          String           @id @default(cuid())
-  userId      String
-  projectId   String
-  amount      Float            // Valor em R$
-  xrpAmount   Float?           // Valor em XRP enviado
-  txHash      String?          // Hash da transação XRP
-  status      String           @default("pending") // pending, confirmed, published, denied, cancelled
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
-  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  project     InvestmentProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id        String            @id @default(cuid())
+  userId    String
+  projectId String
+  amount    Float // Valor em R$
+  xrpAmount Float? // Valor em XRP enviado
+  txHash    String?           @unique // Hash da transação XRP (único para idempotência)
+  status    String            @default("pending") // pending, confirmed, published, denied, cancelled
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project   InvestmentProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
 }
 
 model RevPayoutBatch {
-  id            String           @id @default(cuid())
-  tokenId       String
-  stablecoinId  String
-  network       String
-  totalAmount   Float
-  memo          String?
-  scheduledFor  DateTime?
-  status        String           @default("scheduled") // scheduled, processing, completed, error, cancelled
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
-  items         RevPayoutItem[]
+  id           String          @id @default(cuid())
+  tokenId      String
+  stablecoinId String
+  network      String
+  totalAmount  Float
+  memo         String?
+  scheduledFor DateTime?
+  status       String          @default("scheduled") // scheduled, processing, completed, error, cancelled
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  items        RevPayoutItem[]
 }
 
 model RevPayoutItem {
-  id             String          @id @default(cuid())
-  batchId        String
-  holderAddress  String
-  holderBalance  Float
-  share          Float
-  amount         Float
-  status         String          @default("pending") // pending, processing, paid, error, skipped, trustline_missing
-  attempts       Int             @default(0)
-  txHash         String?
-  lastError      String?
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-  batch          RevPayoutBatch  @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  id            String         @id @default(cuid())
+  batchId       String
+  holderAddress String
+  holderBalance Float
+  share         Float
+  amount        Float
+  status        String         @default("pending") // pending, processing, paid, error, skipped, trustline_missing
+  attempts      Int            @default(0)
+  txHash        String?
+  lastError     String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  batch         RevPayoutBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
 
   @@index([batchId])
   @@index([status])
 }
 
+// Elysia logs - Migrado de memória para banco
+model IssuanceRecord {
+  id          String   @id @default(cuid())
+  projectId   String
+  projectName String
+  tokenType   String
+  currency    String
+  amount      String   @db.Text
+  decimals    Int
+  issuer      String
+  network     String
+  txHash      String
+  metadata    Json     @default("{}")
+  rawResponse Json?
+  createdAt   DateTime @default(now())
+
+  @@index([projectId])
+  @@index([issuer])
+  @@index([txHash])
+  @@index([createdAt])
+}
+
+model ActionRecord {
+  id            String   @id @default(cuid())
+  type          String // authorize, payment, freeze, clawback, payout, error, trustset
+  tokenCurrency String
+  tokenIssuer   String
+  actor         String
+  target        String?
+  amount        String?  @db.Text
+  network       String
+  txHash        String
+  metadata      Json     @default("{}")
+  createdAt     DateTime @default(now())
+
+  @@index([type])
+  @@index([actor])
+  @@index([txHash])
+  @@index([createdAt])
+  @@index([tokenCurrency, tokenIssuer])
+}
+
+// Auditoria de flags e permissões
+model FlagAudit {
+  id            String   @id @default(cuid())
+  operation     String   // freeze, clawback, authorize
+  tokenCurrency String
+  tokenIssuer   String
+  executor      String   // Wallet que executou a operação
+  target        String?  // Wallet alvo (holder)
+  amount        String?  @db.Text
+  network       String
+  txHash        String
+  // Informações de auditoria
+  sourceIP      String?
+  userAgent     String?
+  regularKeyUsed Boolean @default(false) // Se foi executado via RegularKey
+  coldWallet    String?  // Wallet cold (issuer principal)
+  hotWallet     String?  // Wallet hot (RegularKey, se usado)
+  // Permissões verificadas
+  hadPermission Boolean  @default(true)
+  permissionReason String? // Razão se não tinha permissão
+  metadata      Json     @default("{}")
+  createdAt     DateTime @default(now())
+
+  @@index([operation])
+  @@index([executor])
+  @@index([tokenIssuer])
+  @@index([txHash])
+  @@index([createdAt])
+  @@index([tokenCurrency, tokenIssuer])
+}
+
+// Configuração de permissões por issuer
+model IssuerPermission {
+  id            String   @id @default(cuid())
+  issuer        String   // Wallet issuer
+  network       String
+  // Permissões por operação
+  canFreeze     Boolean  @default(false)
+  canClawback   Boolean  @default(false)
+  canAuthorize  Boolean  @default(true) // Autorizar é mais comum
+  // Wallets autorizadas
+  authorizedWallets String[] // Lista de wallets que podem executar operações
+  // RegularKey configurada
+  regularKey    String?  // Wallet hot (RegularKey)
+  coldWallet    String   // Wallet cold (issuer principal)
+  // Configurações
+  requireColdWalletForFreeze Boolean @default(true)
+  requireColdWalletForClawback Boolean @default(true)
+  metadata      Json     @default("{}")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([issuer, network])
+  @@index([issuer])
+  @@index([network])
+}

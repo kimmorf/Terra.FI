@@ -105,6 +105,7 @@ export default function Home() {
   const [xrpBalance, setXrpBalance] = useState<number | null>(null);
   const [loadingTokens, setLoadingTokens] = useState(false);
   const [tokensError, setTokensError] = useState<string | null>(null);
+  const [hasLoadedTokens, setHasLoadedTokens] = useState(false);
   const [availableTokens, setAvailableTokens] = useState<any[]>([]);
   const [loadingAvailableTokens, setLoadingAvailableTokens] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -122,6 +123,11 @@ export default function Home() {
       return;
     }
 
+    // Evita recarregar se já está carregando ou se já carregou recentemente
+    if (loadingTokens || hasLoadedTokens) {
+      return;
+    }
+
     setLoadingTokens(true);
     setTokensError(null);
 
@@ -133,15 +139,17 @@ export default function Home() {
 
       setMptokens(tokens);
       setXrpBalance(balance);
+      setHasLoadedTokens(true);
     } catch (error) {
       console.error('Erro ao carregar dados da conta XRPL:', error);
       setTokensError('Não foi possível carregar os dados da conta na XRPL.');
       setMptokens([]);
       setXrpBalance(null);
+      setHasLoadedTokens(true); // Marca como carregado mesmo em erro para evitar loop
     } finally {
       setLoadingTokens(false);
     }
-  }, [account]);
+  }, [account, loadingTokens, hasLoadedTokens]);
 
   const handleConnect = useCallback(async () => {
     console.log('[App] handleConnect chamado');
@@ -164,6 +172,7 @@ export default function Home() {
     setTokensError(null);
     setCopied(false);
     setNoTokensDismissed(false);
+    setHasLoadedTokens(false); // Reset flag ao desconectar
   }, [disconnect]);
 
   const copyAddress = useCallback(() => {
@@ -430,14 +439,9 @@ export default function Home() {
         memo: `Investimento: ${project.name} - R$ ${amount.toFixed(2)}`,
       });
 
-      const txHash = 
-        (paymentResponse as any)?.hash ??
-        (paymentResponse as any)?.result?.hash ??
-        (paymentResponse as any)?.result?.tx_json?.hash ??
-        (paymentResponse as any)?.tx_json?.hash ??
-        (paymentResponse as any)?.response?.hash ??
-        (paymentResponse as any)?.response?.result?.hash ??
-        null;
+      // Usa função utilitária para extrair hash
+      const { extractTransactionHash } = await import('@/lib/crossmark/transactions');
+      const txHash = extractTransactionHash(paymentResponse);
 
       if (!txHash) {
         throw new Error('Não foi possível obter o hash da transação');
@@ -479,16 +483,18 @@ export default function Home() {
   }, [isConnected, account, xrpBalance, availableTokens, investmentProjects, fetchInvestmentProjects]);
 
   useEffect(() => {
-    if (isConnected && account) {
-      // Carrega apenas uma vez quando conecta
+    if (isConnected && account && !hasLoadedTokens) {
+      // Carrega apenas uma vez quando conecta e ainda não carregou
       loadAccountData();
-    } else {
+    } else if (!isConnected || !account) {
+      // Reset quando desconecta
       setMptokens([]);
       setXrpBalance(null);
       setTokensError(null);
       setNoTokensDismissed(false);
+      setHasLoadedTokens(false);
     }
-  }, [isConnected, account, loadAccountData]);
+  }, [isConnected, account, hasLoadedTokens, loadAccountData]);
 
   useEffect(() => {
     if (mptokens.length > 0) {
@@ -629,6 +635,7 @@ export default function Home() {
         }
 
         await refreshAccount();
+        setHasLoadedTokens(false); // Permite recarregar após emissão
         await loadAccountData();
       } catch (error) {
         console.error('Erro ao emitir token:', error);

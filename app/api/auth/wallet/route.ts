@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { isValidAddress } from 'xrpl';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,10 +17,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Valida formato básico do endereço XRPL (começa com 'r')
-    if (!address.startsWith('r') || address.length < 25) {
+    // Valida endereço XRPL usando biblioteca oficial
+    if (!isValidAddress(address)) {
       return NextResponse.json(
-        { error: 'Endereço da carteira inválido' },
+        { error: 'Endereço da carteira XRPL inválido' },
         { status: 400 }
       );
     }

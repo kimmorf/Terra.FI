@@ -154,7 +154,7 @@ export async function PATCH(request: NextRequest) {
       });
     }
 
-    return NextResponse.json(updatedInvestment);
+    return NextResponse.json(result);
   } catch (error) {
     console.error('Erro ao atualizar investimento:', error);
     return NextResponse.json(

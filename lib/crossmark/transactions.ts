@@ -2,6 +2,7 @@
 
 import { getCrossmarkSDK } from './sdk';
 import type { MPTokenMetadata } from './types';
+import { xrpToDrops, isValidXRPAmount } from '../utils/xrp-converter';
 
 export interface MPTokenIssuanceParams {
   issuer: string;
@@ -188,7 +189,7 @@ export function buildPaymentTransaction({
 export interface XRPPaymentParams {
   sender: string;
   destination: string;
-  amount: string; // Em drops (1 XRP = 1,000,000 drops) ou em XRP como string
+  amount: string; // Em XRP como string (será convertido para drops)
   memo?: string;
 }
 
@@ -199,13 +200,13 @@ export function buildXRPPaymentTransaction({
   amount,
   memo,
 }: XRPPaymentParams) {
-  // Converte XRP para drops se necessário (assume que amount já está em drops ou XRP como string)
-  // Se o valor contém ponto decimal, assume que é XRP e converte para drops
-  let amountInDrops = amount;
-  if (amount.includes('.')) {
-    const xrpAmount = parseFloat(amount);
-    amountInDrops = (xrpAmount * 1000000).toString();
+  // Validar valor
+  if (!isValidXRPAmount(amount)) {
+    throw new Error('Valor XRP inválido');
   }
+
+  // Converter com precisão
+  const amountInDrops = xrpToDrops(amount);
 
   const transaction: Record<string, unknown> = {
     TransactionType: 'Payment',
@@ -258,10 +259,36 @@ export function buildTrustSetTransaction({
   return transaction;
 }
 
-export async function signAndSubmitTransaction(transaction: Record<string, unknown>) {
+export async function signAndSubmitTransaction(
+  transaction: Record<string, unknown>,
+  options?: {
+    network?: string;
+    validate?: boolean;
+    timeout?: number;
+  }
+) {
   const sdk = getCrossmarkSDK();
   if (!sdk) {
     throw new Error('Crossmark SDK indisponível. Certifique-se de que a extensão está carregada.');
+  }
+
+  // Validar transação se solicitado (padrão: true)
+  if (options?.validate !== false) {
+    const { validateTransaction } = await import('./validation');
+    const validation = await validateTransaction(
+      transaction,
+      (options?.network as any) ?? 'testnet'
+    );
+
+    if (!validation.valid) {
+      throw new Error(
+        `Transação inválida: ${validation.errors.join(', ')}`
+      );
+    }
+
+    if (validation.warnings.length > 0) {
+      console.warn('[Crossmark] Avisos de validação:', validation.warnings);
+    }
   }
 
   if (!sdk.async.signAndSubmitAndWait) {
@@ -271,11 +298,18 @@ export async function signAndSubmitTransaction(transaction: Record<string, unkno
   const response = await sdk.async.signAndSubmitAndWait({
     tx_json: transaction,
     autofill: true,
-    failHard: false,
+    failHard: true, // Mudar para true para falhar rápido
+    timeout: options?.timeout ?? 60000,
   });
 
   if (!response) {
     throw new Error('Não foi possível obter a resposta da Crossmark.');
+  }
+
+  // Verificar status da transação
+  const status = (response as any)?.data?.result?.engine_result;
+  if (status && !status.startsWith('tes')) {
+    throw new Error(`Transação falhou: ${status}`);
   }
 
   return response;
