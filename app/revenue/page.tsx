@@ -62,7 +62,13 @@ export default function RevenuePage() {
     }
 
     let cancelled = false;
+    const currentAccount = account; // Captura o valor para garantir que não seja null
     async function loadHolders() {
+      if (!currentAccount) {
+        setHolders([]);
+        return;
+      }
+
       try {
         setHoldersLoading(true);
         setLoadError(null);
@@ -73,9 +79,9 @@ export default function RevenuePage() {
         }
 
         const lines = await getTokenHolders({
-          issuer: account.address,
+          issuer: currentAccount.address,
           currency: preset.currency,
-          network: account.network,
+          network: currentAccount.network,
         });
 
         if (!cancelled) {

@@ -198,8 +198,19 @@ export function useCrossmark() {
         isConnected: true,
         isLoading: false,
         account,
+
         error: undefined,
       });
+
+      // Faz login no Better Auth com o endereço da carteira
+      try {
+        const { signInWithWallet } = await import('@/lib/auth-client');
+        await signInWithWallet(account.address, account.network, account.publicKey);
+        console.log('[Crossmark] Login no Better Auth realizado com sucesso');
+      } catch (authError) {
+        console.warn('[Crossmark] Erro ao fazer login no Better Auth:', authError);
+        // Não falha a conexão se o login no Better Auth falhar
+      }
 
       return true;
     } catch (error) {
@@ -224,18 +235,22 @@ export function useCrossmark() {
   }, [resolveInstallation]);
 
   const disconnect = useCallback(async () => {
-    const sdk = getCrossmarkSDK();
+    // Faz logout do Better Auth
     try {
-      await sdk?.async.signOut?.();
-      sdk?.sync.session.handleSignOut?.();
-    } catch (error) {
-      console.warn('[Crossmark] Falha ao executar signOut', error);
+      const { signOut } = await import('@/lib/auth-client');
+      await signOut();
+      console.log('[Crossmark] Logout do Better Auth realizado');
+    } catch (authError) {
+      console.warn('[Crossmark] Erro ao fazer logout do Better Auth:', authError);
+      // Continua mesmo se houver erro ao fazer logout
     }
 
+    // Limpa o localStorage
     if (typeof window !== 'undefined') {
       window.localStorage.removeItem(STORAGE_KEY);
     }
 
+    // Atualiza o estado
     setState((prev) => ({
       ...prev,
       isConnected: false,
@@ -290,6 +305,13 @@ export function useCrossmark() {
       }
     };
 
+    // Verifica imediatamente
+    checkInstallation();
+
+    // Verifica periodicamente (a cada 2 segundos) para detectar quando o usuário instala
+    checkInterval = setInterval(checkInstallation, 2000);
+
+    // Configura listeners do SDK se disponível
     const sdk = getCrossmarkSDK();
     if (sdk?.on) {
       const handleUserChange = () => refreshAccount();
@@ -309,11 +331,6 @@ export function useCrossmark() {
       sdk.on('network-change', handleNetworkChange);
       sdk.on('signout', handleSignOut);
 
-      // Verifica imediatamente
-      checkInstallation();
-      // Verifica periodicamente (a cada 2 segundos) para detectar quando o usuário instala
-      checkInterval = setInterval(checkInstallation, 2000);
-
       return () => {
         mounted = false;
         if (checkInterval) {
@@ -324,9 +341,6 @@ export function useCrossmark() {
         sdk.off?.('signout', handleSignOut);
       };
     }
-
-    checkInstallation();
-    checkInterval = setInterval(checkInstallation, 2000);
 
     return () => {
       mounted = false;

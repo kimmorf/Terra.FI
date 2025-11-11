@@ -14,9 +14,10 @@ datasource db {
 model User {
   id            String    @id @default(cuid())
   name          String?
-  email         String    @unique
+  email         String?   @unique
   emailVerified Boolean   @default(false)
   image         String?
+  walletAddress String?   @unique // Endereço da carteira XRPL (Crossmark)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   accounts      Account[]
