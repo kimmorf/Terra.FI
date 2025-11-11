@@ -268,44 +268,44 @@ async function runStressTest(
         console.log(`   ⚠️  Token não encontrado. Criando...`);
 
         // Criar token
-        await client.submitAndWait(
-          {
-            TransactionType: 'MPTokenIssuanceCreate',
-            Account: issuer.address,
-            Currency: currency,
-            Amount: '1000000', // 10,000.00 tokens
-            Decimals: 2,
-            Transferable: true,
-          },
-          { wallet: issuer, autofill: true }
-        );
+        const issuanceTx = {
+          TransactionType: 'MPTokenIssuanceCreate',
+          Account: issuer.address,
+          Currency: currency,
+          Amount: '1000000', // 10,000.00 tokens
+          Decimals: 2,
+          Transferable: true,
+        };
+        const preparedIssuance = await client.autofill(issuanceTx);
+        const signedIssuance = issuer.sign(preparedIssuance);
+        await client.submitAndWait(signedIssuance.tx_blob);
 
         // Authorize
-        await client.submitAndWait(
-          {
-            TransactionType: 'MPTokenAuthorize',
-            Account: issuer.address,
-            Currency: currency,
-            Holder: investor.address,
-            Authorize: true,
-          },
-          { wallet: issuer, autofill: true }
-        );
+        const authorizeTx = {
+          TransactionType: 'MPTokenAuthorize',
+          Account: issuer.address,
+          Currency: currency,
+          Holder: investor.address,
+          Authorize: true,
+        };
+        const preparedAuthorize = await client.autofill(authorizeTx);
+        const signedAuthorize = issuer.sign(preparedAuthorize);
+        await client.submitAndWait(signedAuthorize.tx_blob);
 
         // Enviar tokens
-        await client.submitAndWait(
-          {
-            TransactionType: 'Payment',
-            Account: issuer.address,
-            Destination: investor.address,
-            Amount: {
-              currency,
-              issuer: issuer.address,
-              value: '10000', // 100.00 tokens
-            },
+        const paymentTx = {
+          TransactionType: 'Payment',
+          Account: issuer.address,
+          Destination: investor.address,
+          Amount: {
+            currency,
+            issuer: issuer.address,
+            value: '10000', // 100.00 tokens
           },
-          { wallet: issuer, autofill: true }
-        );
+        };
+        const preparedPayment = await client.autofill(paymentTx);
+        const signedPayment = issuer.sign(preparedPayment);
+        await client.submitAndWait(signedPayment.tx_blob);
 
         console.log(`   ✅ Token criado e enviado\n`);
       } else {

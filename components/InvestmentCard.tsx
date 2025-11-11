@@ -18,6 +18,7 @@ interface InvestmentProject {
   name: string;
   type: string;
   purpose: string;
+  description?: string;
   example?: string;
   minAmount: number;
   maxAmount?: number;

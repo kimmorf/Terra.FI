@@ -28,6 +28,23 @@ import {
 
 const NETWORK = 'testnet';
 const TESTNET_URL = 'wss://s.altnet.rippletest.net:51233';
+const FAUCET_URL = 'https://faucet.altnet.rippletest.net/accounts';
+
+async function fundAccountFromFaucet(address: string): Promise<void> {
+  try {
+    const response = await fetch(FAUCET_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ destination: address, xrpAmount: '1000' }),
+    });
+    if (!response.ok) {
+      throw new Error(`Faucet retornou ${response.status}`);
+    }
+    await new Promise(resolve => setTimeout(resolve, 3000));
+  } catch (error) {
+    console.warn(`⚠️  Erro ao solicitar do faucet: ${error}`);
+  }
+}
 
 interface TestResult {
   step: string;
@@ -82,32 +99,29 @@ async function main() {
     
     // Criar e financiar issuer
     logStep('1.1', 'Criando conta do emissor...');
-    const issuerFunding = await client.fundWallet();
-    issuerWallet = issuerFunding.wallet;
+    issuerWallet = Wallet.generate();
+    await fundAccountFromFaucet(issuerWallet.address);
     logSuccess('1.1', 'Emissor criado', {
       address: issuerWallet.address,
       seed: issuerWallet.seed,
-      balance: issuerFunding.balance
     });
     
     // Criar e financiar holder 1
     logStep('1.2', 'Criando conta do holder 1...');
-    const holder1Funding = await client.fundWallet();
-    holder1Wallet = holder1Funding.wallet;
+    holder1Wallet = Wallet.generate();
+    await fundAccountFromFaucet(holder1Wallet.address);
     logSuccess('1.2', 'Holder 1 criado', {
       address: holder1Wallet.address,
       seed: holder1Wallet.seed,
-      balance: holder1Funding.balance
     });
     
     // Criar e financiar holder 2
     logStep('1.3', 'Criando conta do holder 2...');
-    const holder2Funding = await client.fundWallet();
-    holder2Wallet = holder2Funding.wallet;
+    holder2Wallet = Wallet.generate();
+    await fundAccountFromFaucet(holder2Wallet.address);
     logSuccess('1.3', 'Holder 2 criado', {
       address: holder2Wallet.address,
       seed: holder2Wallet.seed,
-      balance: holder2Funding.balance
     });
     
     // Aguardar para garantir que as contas foram criadas

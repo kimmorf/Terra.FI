@@ -9,6 +9,12 @@ const nextConfig = {
       { file: /vendor-chunks/ },
     ];
     
+    // Excluir arquivos de teste e configuração do build
+    config.module.rules.push({
+      test: /(vitest\.config\.ts|\.test\.ts|\.spec\.ts)$/,
+      use: 'ignore-loader',
+    });
+    
     // Otimizar resolução de módulos
     config.resolve.fallback = {
       ...config.resolve.fallback,
