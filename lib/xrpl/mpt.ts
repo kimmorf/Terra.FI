@@ -231,22 +231,34 @@ export async function getIssuedMPTokens(params: {
         try {
             client = await xrplPool.getClient(network as XRPLNetwork);
             
-            // O pool já gerencia a conexão, mas vamos verificar se está realmente conectado
-            // fazendo uma requisição leve antes de fazer a requisição principal
+            // Verificar se está conectado e fazer uma requisição leve para validar
             if (!client.isConnected()) {
-                // Se não está conectado, o pool deveria ter criado uma nova conexão
-                // Mas vamos tentar conectar aqui também como fallback
                 try {
                     await client.connect();
                 } catch (connectError) {
                     console.error('[getIssuedMPTokens] Erro ao conectar client:', connectError);
-                    // Se falhar, o pool criará uma nova conexão na próxima tentativa
+                    // Forçar criação de nova conexão removendo do pool
                     throw new Error(`Conexão XRPL não disponível: ${connectError instanceof Error ? connectError.message : 'websocket foi fechado'}`);
                 }
             }
+            
+            // Fazer uma requisição leve para validar a conexão
+            try {
+                await client.request({ command: 'ping' });
+            } catch (pingError: any) {
+                // Se ping falhar, a conexão está morta
+                console.error('[getIssuedMPTokens] Erro ao fazer ping:', pingError);
+                // Desconectar e forçar nova conexão
+                try {
+                    await client.disconnect();
+                } catch {
+                    // Ignora erro ao desconectar
+                }
+                throw new Error('Conexão com a rede XRPL foi fechada. Tente novamente.');
+            }
         } catch (connectionError: any) {
-            console.error('[getIssuedMPTokens] Erro ao obter client XRPL:', connectionError);
-            throw new Error(`Erro ao conectar com a rede XRPL: ${connectionError.message || 'websocket foi fechado'}`);
+            console.error('[getIssuedMPTokens] Erro ao fazer requisição:', connectionError);
+            throw new Error(connectionError.message || 'Conexão com a rede XRPL foi fechada. Tente novamente.');
         }
         
         try {

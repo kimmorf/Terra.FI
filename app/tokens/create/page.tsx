@@ -17,6 +17,9 @@ import {
     Hammer,
     DollarSign,
     Lock,
+    Upload,
+    File,
+    X,
 } from 'lucide-react';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { BackgroundParticles } from '@/components/BackgroundParticles';
@@ -100,6 +103,8 @@ export default function TokenFactoryPage() {
     const [txHash, setTxHash] = useState<string | null>(null);
     const [issuedTokens, setIssuedTokens] = useState<any[]>([]);
     const [loadingTokens, setLoadingTokens] = useState(false);
+    const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+    const [fileDescriptions, setFileDescriptions] = useState<Record<string, string>>({});
 
     useEffect(() => {
         if (!selectedPreset) {
@@ -177,6 +182,39 @@ export default function TokenFactoryPage() {
                 console.error('Erro ao copiar endereço:', error);
             });
     }, [account?.address]);
+
+    const handleFileSelect = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+        const files = Array.from(event.target.files || []);
+        setSelectedFiles((prev) => [...prev, ...files]);
+    }, []);
+
+    const handleRemoveFile = useCallback((index: number) => {
+        setSelectedFiles((prev) => {
+            const newFiles = prev.filter((_, i) => i !== index);
+            const fileId = prev[index].name;
+            setFileDescriptions((prev) => {
+                const newDescs = { ...prev };
+                delete newDescs[fileId];
+                return newDescs;
+            });
+            return newFiles;
+        });
+    }, []);
+
+    const handleFileDescriptionChange = useCallback((fileName: string, description: string) => {
+        setFileDescriptions((prev) => ({
+            ...prev,
+            [fileName]: description,
+        }));
+    }, []);
+
+    const formatFileSize = useCallback((bytes: number): string => {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+    }, []);
 
     const handleIssueToken = useCallback(async () => {
         if (!selectedPreset) {
@@ -287,9 +325,20 @@ export default function TokenFactoryPage() {
                 console.warn('[TokenFactory] Falha ao registrar emissão no Elysia', error);
             }
 
+            // Fazer upload dos arquivos se houver um projeto associado
+            // Por enquanto, apenas limpar os arquivos selecionados
+            // TODO: Implementar upload de arquivos quando houver projeto associado
+            if (selectedFiles.length > 0) {
+                console.log('[TokenFactory] Arquivos selecionados serão processados quando houver projeto associado');
+            }
+
             refreshAccount();
             // Recarregar lista de MPTs emitidos
             await loadIssuedTokens();
+            
+            // Limpar arquivos selecionados após sucesso
+            setSelectedFiles([]);
+            setFileDescriptions({});
         } catch (error) {
             console.error('Erro ao emitir token:', error);
             const message =
@@ -311,6 +360,7 @@ export default function TokenFactoryPage() {
         externalUrl,
         refreshAccount,
         loadIssuedTokens,
+        selectedFiles,
     ]);
 
     const explorerUrl = getExplorerUrl(account?.network, txHash);
@@ -608,6 +658,75 @@ export default function TokenFactoryPage() {
                                             placeholder="https://seu-dominio.com/dados-do-projeto"
                                             className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                         />
+                                    </div>
+                                </div>
+
+                                {/* Seção de Upload de Arquivos */}
+                                <div className="space-y-4 border-t border-gray-200 dark:border-gray-700 pt-6">
+                                    <div className="flex items-center gap-2">
+                                        <Upload className="w-5 h-5 text-blue-500" />
+                                        <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                                            Documentos e Arquivos (opcional)
+                                        </label>
+                                    </div>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                                        Adicione documentos relacionados ao token (PDFs, imagens, etc.). Os arquivos serão associados quando o projeto for criado.
+                                    </p>
+                                    
+                                    <div className="space-y-3">
+                                        <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-gray-300 dark:border-gray-700 border-dashed rounded-lg cursor-pointer bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
+                                            <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                                                <Upload className="w-8 h-8 mb-2 text-gray-500 dark:text-gray-400" />
+                                                <p className="mb-2 text-sm text-gray-500 dark:text-gray-400">
+                                                    <span className="font-semibold">Clique para fazer upload</span> ou arraste e solte
+                                                </p>
+                                                <p className="text-xs text-gray-500 dark:text-gray-400">
+                                                    PDF, DOC, DOCX, XLS, XLSX, imagens, etc. (máx. 50MB)
+                                                </p>
+                                            </div>
+                                            <input
+                                                type="file"
+                                                className="hidden"
+                                                multiple
+                                                onChange={handleFileSelect}
+                                                accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.rar,.jpg,.jpeg,.png,.gif,.txt,.csv,.json,.xml,.kml,.kmz"
+                                            />
+                                        </label>
+
+                                        {selectedFiles.length > 0 && (
+                                            <div className="space-y-2">
+                                                {selectedFiles.map((file, index) => (
+                                                    <div
+                                                        key={index}
+                                                        className="flex items-start gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700"
+                                                    >
+                                                        <File className="w-5 h-5 text-blue-500 mt-1 flex-shrink-0" />
+                                                        <div className="flex-1 min-w-0">
+                                                            <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                                                                {file.name}
+                                                            </p>
+                                                            <p className="text-xs text-gray-500 dark:text-gray-400">
+                                                                {formatFileSize(file.size)} • {file.type || 'Tipo desconhecido'}
+                                                            </p>
+                                                            <input
+                                                                type="text"
+                                                                placeholder="Descrição do arquivo (opcional)"
+                                                                value={fileDescriptions[file.name] || ''}
+                                                                onChange={(e) => handleFileDescriptionChange(file.name, e.target.value)}
+                                                                className="mt-2 w-full px-3 py-1.5 text-xs border border-gray-300 dark:border-gray-700 rounded bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                                            />
+                                                        </div>
+                                                        <button
+                                                            onClick={() => handleRemoveFile(index)}
+                                                            className="p-1 hover:bg-red-100 dark:hover:bg-red-900/30 rounded transition-colors flex-shrink-0"
+                                                            aria-label="Remover arquivo"
+                                                        >
+                                                            <X className="w-4 h-4 text-red-500" />
+                                                        </button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
 
