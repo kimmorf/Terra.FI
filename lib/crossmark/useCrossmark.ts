@@ -223,11 +223,36 @@ export function useCrossmark() {
     }
   }, [resolveInstallation]);
 
-  const disconnect = useCallback(() => {
+  const disconnect = useCallback(async () => {
+    try {
+      const sdk = getCrossmarkSDK();
+      
+      // Tenta desconectar do SDK da Crossmark se disponível
+      if (sdk) {
+        try {
+          // Tenta chamar signOut se disponível
+          if (sdk.async?.signOut) {
+            await sdk.async.signOut();
+          }
+          // Tenta chamar disconnect se disponível
+          if (sdk.async?.disconnect) {
+            await sdk.async.disconnect();
+          }
+        } catch (error) {
+          console.warn('[Crossmark] Erro ao desconectar do SDK:', error);
+          // Continua mesmo se houver erro ao desconectar do SDK
+        }
+      }
+    } catch (error) {
+      console.warn('[Crossmark] Erro ao obter SDK para desconectar:', error);
+    }
+
+    // Limpa o localStorage
     if (typeof window !== 'undefined') {
       window.localStorage.removeItem(STORAGE_KEY);
     }
 
+    // Atualiza o estado
     setState((prev) => ({
       ...prev,
       isConnected: false,
@@ -246,29 +271,43 @@ export function useCrossmark() {
       const installed = resolveInstallation();
 
       if (installed) {
+        // Verifica se há uma conta no localStorage (indica que o usuário já conectou antes)
+        const hasStoredAccount = typeof window !== 'undefined' && 
+          window.localStorage.getItem(STORAGE_KEY);
+
         // Se está instalado, verifica se já tem conta conectada (apenas se o usuário já conectou antes)
         const sdkAccount = buildAccount();
 
-        if (sdkAccount) {
-          // Já tem conta conectada no SDK - atualiza o estado e localStorage
+        // Só reconecta automaticamente se:
+        // 1. Há uma conta no SDK
+        // 2. Há uma conta armazenada no localStorage (usuário já conectou antes)
+        // 3. O estado atual não está explicitamente desconectado
+        if (sdkAccount && hasStoredAccount) {
+          // Já tem conta conectada no SDK e no localStorage - atualiza o estado
           if (typeof window !== 'undefined') {
             window.localStorage.setItem(STORAGE_KEY, JSON.stringify(sdkAccount));
           }
-          setState((prev) => ({
-            ...prev,
-            isInstalled: true,
-            isConnected: true,
-            account: sdkAccount,
-            error: undefined,
-          }));
+          setState((prev) => {
+            // Se já está desconectado explicitamente, não reconecta
+            if (prev.isConnected === false && !prev.account) {
+              return prev;
+            }
+            return {
+              ...prev,
+              isInstalled: true,
+              isConnected: true,
+              account: sdkAccount,
+              error: undefined,
+            };
+          });
         } else {
           // Está instalado mas não conectado - apenas atualiza o estado de instalação
           // Não conecta automaticamente, espera o usuário clicar
           setState((prev) => ({
             ...prev,
             isInstalled: true,
-            isConnected: false,
-            account: null,
+            isConnected: hasStoredAccount ? prev.isConnected : false,
+            account: hasStoredAccount ? prev.account : null,
           }));
         }
       } else {

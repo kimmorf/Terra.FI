@@ -26,6 +26,6 @@ export interface CrossmarkState {
 
 export interface CrossmarkContextValue extends CrossmarkState {
   connect: () => Promise<boolean>;
-  disconnect: () => void;
+  disconnect: () => void | Promise<void>;
   refreshAccount: () => void;
 }
