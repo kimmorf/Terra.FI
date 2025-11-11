@@ -1076,7 +1076,6 @@ export default function Home() {
                               id: project.id || '',
                               name: project.name,
                               type: project.currency,
-                              description: project.purpose,
                               purpose: project.purpose,
                               example: project.example || '',
                               minAmount: project.minAmount || 0,
