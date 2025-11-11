@@ -245,11 +245,11 @@ export default function Home() {
   // Ajusta a aba padrão baseado na disponibilidade
   useEffect(() => {
     if (!session && investorTab === 'investments') {
-      setInvestorTab('tokens');
-    } else if (session && !isConnected && investorTab === 'tokens') {
-      setInvestorTab('investments');
+      setInvestorTab('available-tokens');
+    } else if (session && !isConnected && investorTab === 'my-tokens') {
+      setInvestorTab('available-tokens');
     }
-  }, [session, isConnected]);
+  }, [session, isConnected, investorTab]);
 
   // Carrega investimentos disponíveis quando estiver na aba
   useEffect(() => {
