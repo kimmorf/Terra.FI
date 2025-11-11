@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { 
   Wallet, 
@@ -22,9 +22,39 @@ import {
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { BackgroundParticles } from '@/components/BackgroundParticles';
 
+interface AdminProject {
+  id: string;
+  name: string;
+  type: string;
+  description?: string;
+  purpose: string;
+  example?: string;
+  minAmount: number;
+  maxAmount?: number;
+  totalAmount: number;
+  targetAmount: number;
+  status: string;
+}
+
+const typeIcons = {
+  LAND: Mountain,
+  BUILD: Hammer,
+  REV: DollarSign,
+  COL: Lock,
+};
+
+const typeColors = {
+  LAND: 'from-green-400 to-green-600 dark:from-green-500 dark:to-green-700',
+  BUILD: 'from-orange-400 to-orange-600 dark:from-orange-500 dark:to-orange-700',
+  REV: 'from-yellow-400 to-yellow-600 dark:from-yellow-500 dark:to-yellow-700',
+  COL: 'from-purple-400 to-purple-600 dark:from-purple-500 dark:to-purple-700',
+};
+
 export default function Home() {
   const [selectedRole, setSelectedRole] = useState<'investidor' | 'administrador'>('investidor');
   const [isConnecting, setIsConnecting] = useState(false);
+  const [adminProjects, setAdminProjects] = useState<AdminProject[]>([]);
+  const [loadingProjects, setLoadingProjects] = useState(false);
 
   const handleConnect = () => {
     setIsConnecting(true);
@@ -32,6 +62,27 @@ export default function Home() {
     setTimeout(() => {
       setIsConnecting(false);
     }, 2000);
+  };
+
+  useEffect(() => {
+    if (selectedRole === 'administrador') {
+      fetchAdminProjects();
+    }
+  }, [selectedRole]);
+
+  const fetchAdminProjects = async () => {
+    try {
+      setLoadingProjects(true);
+      const response = await fetch('/api/admin/projects');
+      if (response.ok) {
+        const data = await response.json();
+        setAdminProjects(data);
+      }
+    } catch (error) {
+      console.error('Erro ao buscar projetos do admin:', error);
+    } finally {
+      setLoadingProjects(false);
+    }
   };
 
   const steps = [
@@ -272,203 +323,94 @@ export default function Home() {
             </motion.div>
 
             {/* MPT Cards Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* LAND-MPT Card */}
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: 0.1 }}
-                whileHover={{ scale: 1.02, y: -5 }}
-                className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-6 border border-gray-200 dark:border-gray-700 hover:shadow-2xl transition-all duration-300"
-              >
-                <div className="flex items-start gap-4 mb-4">
-                  <div className="p-3 bg-gradient-to-br from-green-400 to-green-600 dark:from-green-500 dark:to-green-700 rounded-xl">
-                    <Mountain className="w-8 h-8 text-white" />
-                  </div>
-                  <div className="flex-1">
-                    <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-1">
-                      LAND-MPT
-                    </h3>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
-                      Fractionalized land parcel
-                    </p>
-                  </div>
-                </div>
-                <div className="space-y-3 mb-6">
-                  <div>
-                    <p className="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-1">
-                      Propósito:
-                    </p>
-                    <p className="text-gray-700 dark:text-gray-200">
-                      Tokenização de terrenos
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-1">
-                      Exemplo:
-                    </p>
-                    <p className="text-gray-700 dark:text-gray-200">
-                      1 token = 1 m²
-                    </p>
-                  </div>
-                </div>
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  className="w-full px-4 py-3 bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700 text-white rounded-xl font-semibold transition-all duration-300 flex items-center justify-center gap-2 shadow-md hover:shadow-lg"
-                >
-                  Emitir LAND-MPT
-                  <ArrowRight className="w-5 h-5" />
-                </motion.button>
-              </motion.div>
-
-              {/* BUILD-MPT Card */}
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: 0.2 }}
-                whileHover={{ scale: 1.02, y: -5 }}
-                className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-6 border border-gray-200 dark:border-gray-700 hover:shadow-2xl transition-all duration-300"
-              >
-                <div className="flex items-start gap-4 mb-4">
-                  <div className="p-3 bg-gradient-to-br from-orange-400 to-orange-600 dark:from-orange-500 dark:to-orange-700 rounded-xl">
-                    <Hammer className="w-8 h-8 text-white" />
-                  </div>
-                  <div className="flex-1">
-                    <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-1">
-                      BUILD-MPT
-                    </h3>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
-                      Construction phase financing
-                    </p>
-                  </div>
-                </div>
-                <div className="space-y-3 mb-6">
-                  <div>
-                    <p className="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-1">
-                      Propósito:
-                    </p>
-                    <p className="text-gray-700 dark:text-gray-200">
-                      Financiamento de construção
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-1">
-                      Exemplo:
-                    </p>
-                    <p className="text-gray-700 dark:text-gray-200">
-                      CAPEX tranches
-                    </p>
-                  </div>
-                </div>
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  className="w-full px-4 py-3 bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700 text-white rounded-xl font-semibold transition-all duration-300 flex items-center justify-center gap-2 shadow-md hover:shadow-lg"
-                >
-                  Emitir BUILD-MPT
-                  <ArrowRight className="w-5 h-5" />
-                </motion.button>
-              </motion.div>
-
-              {/* REV-MPT Card */}
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: 0.3 }}
-                whileHover={{ scale: 1.02, y: -5 }}
-                className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-6 border border-gray-200 dark:border-gray-700 hover:shadow-2xl transition-all duration-300"
-              >
-                <div className="flex items-start gap-4 mb-4">
-                  <div className="p-3 bg-gradient-to-br from-yellow-400 to-yellow-600 dark:from-yellow-500 dark:to-yellow-700 rounded-xl">
-                    <DollarSign className="w-8 h-8 text-white" />
-                  </div>
-                  <div className="flex-1">
-                    <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-1">
-                      REV-MPT
-                    </h3>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
-                      Revenue distribution rights
-                    </p>
-                  </div>
-                </div>
-                <div className="space-y-3 mb-6">
-                  <div>
-                    <p className="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-1">
-                      Propósito:
-                    </p>
-                    <p className="text-gray-700 dark:text-gray-200">
-                      Direitos de receita
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-1">
-                      Exemplo:
-                    </p>
-                    <p className="text-gray-700 dark:text-gray-200">
-                      Rent or profit share
-                    </p>
-                  </div>
-                </div>
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  className="w-full px-4 py-3 bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700 text-white rounded-xl font-semibold transition-all duration-300 flex items-center justify-center gap-2 shadow-md hover:shadow-lg"
-                >
-                  Emitir REV-MPT
-                  <ArrowRight className="w-5 h-5" />
-                </motion.button>
-              </motion.div>
-
-              {/* COL-MPT Card */}
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: 0.4 }}
-                whileHover={{ scale: 1.02, y: -5 }}
-                className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-6 border border-gray-200 dark:border-gray-700 hover:shadow-2xl transition-all duration-300"
-              >
-                <div className="flex items-start gap-4 mb-4">
-                  <div className="p-3 bg-gradient-to-br from-purple-400 to-purple-600 dark:from-purple-500 dark:to-purple-700 rounded-xl">
-                    <Lock className="w-8 h-8 text-white" />
-                  </div>
-                  <div className="flex-1">
-                    <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-1">
-                      COL-MPT
-                    </h3>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
-                      Collateral representation
-                    </p>
-                  </div>
-                </div>
-                <div className="space-y-3 mb-6">
-                  <div>
-                    <p className="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-1">
-                      Propósito:
-                    </p>
-                    <p className="text-gray-700 dark:text-gray-200">
-                      Representação de colateral
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-1">
-                      Exemplo:
-                    </p>
-                    <p className="text-gray-700 dark:text-gray-200">
-                      Locked LAND = Credit Power
-                    </p>
-                  </div>
-                </div>
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  className="w-full px-4 py-3 bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700 text-white rounded-xl font-semibold transition-all duration-300 flex items-center justify-center gap-2 shadow-md hover:shadow-lg"
-                >
-                  Emitir COL-MPT
-                  <ArrowRight className="w-5 h-5" />
-                </motion.button>
-              </motion.div>
-            </div>
+            {loadingProjects ? (
+              <div className="text-center py-12">
+                <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+                <p className="text-gray-600 dark:text-gray-300">Carregando projetos...</p>
+              </div>
+            ) : adminProjects.length === 0 ? (
+              <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-12 text-center">
+                <p className="text-gray-600 dark:text-gray-300 text-lg">
+                  Nenhum projeto cadastrado. Execute o seed do banco de dados.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {adminProjects.map((project, index) => {
+                  const Icon = typeIcons[project.type as keyof typeof typeIcons] || Mountain;
+                  const colorClass = typeColors[project.type as keyof typeof typeColors] || 'from-blue-400 to-blue-600';
+                  
+                  return (
+                    <motion.div
+                      key={project.id}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.5, delay: index * 0.1 }}
+                      whileHover={{ scale: 1.02, y: -5 }}
+                      className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-6 border border-gray-200 dark:border-gray-700 hover:shadow-2xl transition-all duration-300"
+                    >
+                      <div className="flex items-start gap-4 mb-4">
+                        <div className={`p-3 bg-gradient-to-br ${colorClass} rounded-xl`}>
+                          <Icon className="w-8 h-8 text-white" />
+                        </div>
+                        <div className="flex-1">
+                          <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-1">
+                            {project.name}
+                          </h3>
+                          <p className="text-sm text-gray-500 dark:text-gray-400">
+                            {project.description || project.purpose}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="space-y-3 mb-6">
+                        <div>
+                          <p className="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-1">
+                            Propósito:
+                          </p>
+                          <p className="text-gray-700 dark:text-gray-200">
+                            {project.purpose}
+                          </p>
+                        </div>
+                        {project.example && (
+                          <div>
+                            <p className="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-1">
+                              Exemplo:
+                            </p>
+                            <p className="text-gray-700 dark:text-gray-200">
+                              {project.example}
+                            </p>
+                          </div>
+                        )}
+                        <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
+                          <div className="flex justify-between text-sm mb-2">
+                            <span className="text-gray-600 dark:text-gray-300">
+                              Arrecadado: R$ {project.totalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                            </span>
+                            <span className="text-gray-600 dark:text-gray-300">
+                              Meta: R$ {project.targetAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                            </span>
+                          </div>
+                          <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                            <div
+                              className="bg-gradient-to-r from-blue-500 to-purple-500 h-2 rounded-full"
+                              style={{ width: `${Math.min((project.totalAmount / project.targetAmount) * 100, 100)}%` }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                      <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        className="w-full px-4 py-3 bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700 text-white rounded-xl font-semibold transition-all duration-300 flex items-center justify-center gap-2 shadow-md hover:shadow-lg"
+                      >
+                        Emitir {project.name}
+                        <ArrowRight className="w-5 h-5" />
+                      </motion.button>
+                    </motion.div>
+                  );
+                })}
+              </div>
+            )}
           </motion.div>
         )}
       </div>
