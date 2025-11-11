@@ -20,7 +20,7 @@ interface IssuanceRecord {
 
 interface ActionRecord {
   id: string;
-  type: 'authorize' | 'payment' | 'freeze' | 'clawback' | 'payout';
+  type: 'authorize' | 'payment' | 'freeze' | 'clawback' | 'payout' | 'error';
   token: {
     currency: string;
     issuer: string;
@@ -106,6 +106,14 @@ const app = new Elysia()
       .get('/actions', () => ({
         actions,
       }))
+      .get('/actions/export', () => (
+        new Response(JSON.stringify({ generatedAt: new Date().toISOString(), actions }), {
+          headers: {
+            'Content-Type': 'application/json',
+            'Content-Disposition': `attachment; filename="terrafi-actions-${Date.now()}.json"`,
+          },
+        })
+      ))
       .post(
         '/actions',
         ({ body }) => {
@@ -140,6 +148,7 @@ const app = new Elysia()
               t.Literal('freeze'),
               t.Literal('clawback'),
               t.Literal('payout'),
+              t.Literal('error'),
             ]),
             token: t.Object({
               currency: t.String(),

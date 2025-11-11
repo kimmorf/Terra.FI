@@ -224,35 +224,18 @@ export function useCrossmark() {
   }, [resolveInstallation]);
 
   const disconnect = useCallback(async () => {
+    const sdk = getCrossmarkSDK();
     try {
-      const sdk = getCrossmarkSDK();
-      
-      // Tenta desconectar do SDK da Crossmark se disponível
-      if (sdk) {
-        try {
-          // Tenta chamar signOut se disponível
-          if (sdk.async?.signOut) {
-            await sdk.async.signOut();
-          }
-          // Tenta chamar disconnect se disponível
-          if (sdk.async?.disconnect) {
-            await sdk.async.disconnect();
-          }
-        } catch (error) {
-          console.warn('[Crossmark] Erro ao desconectar do SDK:', error);
-          // Continua mesmo se houver erro ao desconectar do SDK
-        }
-      }
+      await sdk?.async.signOut?.();
+      sdk?.sync.session.handleSignOut?.();
     } catch (error) {
-      console.warn('[Crossmark] Erro ao obter SDK para desconectar:', error);
+      console.warn('[Crossmark] Falha ao executar signOut', error);
     }
 
-    // Limpa o localStorage
     if (typeof window !== 'undefined') {
       window.localStorage.removeItem(STORAGE_KEY);
     }
 
-    // Atualiza o estado
     setState((prev) => ({
       ...prev,
       isConnected: false,
@@ -271,43 +254,29 @@ export function useCrossmark() {
       const installed = resolveInstallation();
 
       if (installed) {
-        // Verifica se há uma conta no localStorage (indica que o usuário já conectou antes)
-        const hasStoredAccount = typeof window !== 'undefined' && 
-          window.localStorage.getItem(STORAGE_KEY);
-
         // Se está instalado, verifica se já tem conta conectada (apenas se o usuário já conectou antes)
         const sdkAccount = buildAccount();
 
-        // Só reconecta automaticamente se:
-        // 1. Há uma conta no SDK
-        // 2. Há uma conta armazenada no localStorage (usuário já conectou antes)
-        // 3. O estado atual não está explicitamente desconectado
-        if (sdkAccount && hasStoredAccount) {
-          // Já tem conta conectada no SDK e no localStorage - atualiza o estado
+        if (sdkAccount) {
+          // Já tem conta conectada no SDK - atualiza o estado e localStorage
           if (typeof window !== 'undefined') {
             window.localStorage.setItem(STORAGE_KEY, JSON.stringify(sdkAccount));
           }
-          setState((prev) => {
-            // Se já está desconectado explicitamente, não reconecta
-            if (prev.isConnected === false && !prev.account) {
-              return prev;
-            }
-            return {
-              ...prev,
-              isInstalled: true,
-              isConnected: true,
-              account: sdkAccount,
-              error: undefined,
-            };
-          });
+          setState((prev) => ({
+            ...prev,
+            isInstalled: true,
+            isConnected: true,
+            account: sdkAccount,
+            error: undefined,
+          }));
         } else {
           // Está instalado mas não conectado - apenas atualiza o estado de instalação
           // Não conecta automaticamente, espera o usuário clicar
           setState((prev) => ({
             ...prev,
             isInstalled: true,
-            isConnected: hasStoredAccount ? prev.isConnected : false,
-            account: hasStoredAccount ? prev.account : null,
+            isConnected: false,
+            account: null,
           }));
         }
       } else {
@@ -321,10 +290,42 @@ export function useCrossmark() {
       }
     };
 
-    // Verifica imediatamente
-    checkInstallation();
+    const sdk = getCrossmarkSDK();
+    if (sdk?.on) {
+      const handleUserChange = () => refreshAccount();
+      const handleNetworkChange = () => refreshAccount();
+      const handleSignOut = () => {
+        if (typeof window !== 'undefined') {
+          window.localStorage.removeItem(STORAGE_KEY);
+        }
+        setState((prev) => ({
+          ...prev,
+          isConnected: false,
+          account: null,
+        }));
+      };
 
-    // Verifica periodicamente (a cada 2 segundos) para detectar quando o usuário instala
+      sdk.on('user-change', handleUserChange);
+      sdk.on('network-change', handleNetworkChange);
+      sdk.on('signout', handleSignOut);
+
+      // Verifica imediatamente
+      checkInstallation();
+      // Verifica periodicamente (a cada 2 segundos) para detectar quando o usuário instala
+      checkInterval = setInterval(checkInstallation, 2000);
+
+      return () => {
+        mounted = false;
+        if (checkInterval) {
+          clearInterval(checkInterval);
+        }
+        sdk.off?.('user-change', handleUserChange);
+        sdk.off?.('network-change', handleNetworkChange);
+        sdk.off?.('signout', handleSignOut);
+      };
+    }
+
+    checkInstallation();
     checkInterval = setInterval(checkInstallation, 2000);
 
     return () => {
@@ -333,7 +334,7 @@ export function useCrossmark() {
         clearInterval(checkInterval);
       }
     };
-  }, [resolveInstallation]);
+  }, [resolveInstallation, refreshAccount]);
 
   return {
     ...state,

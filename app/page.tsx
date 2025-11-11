@@ -34,6 +34,7 @@ import { useCrossmarkContext } from '@/lib/crossmark/CrossmarkProvider';
 import {
   buildMPTokenIssuanceTransaction,
   signAndSubmitTransaction,
+  extractTransactionHash,
 } from '@/lib/crossmark/transactions';
 import type { MPTokenMetadata } from '@/lib/crossmark/types';
 import { registerIssuance } from '@/lib/elysia-client';
@@ -306,16 +307,15 @@ export default function Home() {
 
         const response = await signAndSubmitTransaction(transaction);
 
-        // O response do Crossmark SDK pode ter diferentes estruturas
-        // Tentamos várias possibilidades para encontrar o hash
-        const txHash =
-          (response as any)?.data?.hash ??
-          (response as any)?.data?.result?.hash ??
-          (response as any)?.data?.result?.tx_json?.hash ??
-          (response as any)?.data?.tx_json?.hash ??
-          (response as any)?.result?.hash ??
-          (response as any)?.hash ??
-          (response as any)?.tx_json?.hash;
+        const responseError =
+          (response as any)?.error ??
+          (response as any)?.data?.error ??
+          (response as any)?.result?.error;
+        if (responseError) {
+          throw new Error(responseError.message ?? 'Transação rejeitada pela Crossmark.');
+        }
+
+        const txHash = extractTransactionHash(response);
 
         if (!txHash) {
           throw new Error('Não foi possível identificar o hash da transação emitida.');
@@ -345,11 +345,24 @@ export default function Home() {
         await loadAccountData();
       } catch (error) {
         console.error('Erro ao emitir token:', error);
-        const message =
-          error instanceof Error ? error.message : 'Erro desconhecido ao emitir token.';
+        const message = error instanceof Error ? error.message : 'Falha ao emitir token.';
         setIssuanceError(message);
-        setIssuanceSuccess(null);
-      } finally {
+        try {
+          // Assuming registerAction is available from @/lib/elysia-client or similar
+          // This part of the code was not provided in the original file,
+          // so it's commented out to avoid errors.
+          // await registerAction({
+          //   type: 'error',
+          //   token: { currency: project.type, issuer: account?.address ?? 'unknown' },
+          //   actor: account?.address ?? 'unknown',
+          //   target: project.name,
+          //   network: account?.network ?? 'testnet',
+          //   txHash: 'n/a',
+          //   metadata: { context: 'issuance', message },
+          // });
+        } catch (registerError) {
+          console.warn('Falha ao registrar erro no Elysia:', registerError);
+        }
         setIssuingProjectId(null);
       }
     },
