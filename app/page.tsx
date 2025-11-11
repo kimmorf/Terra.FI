@@ -25,6 +25,8 @@ import {
   Check,
   AlertCircle,
   Info,
+  FileText,
+  Upload,
 } from 'lucide-react';
 import Link from 'next/link';
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -117,6 +119,11 @@ export default function Home() {
   const [adminInvestments, setAdminInvestments] = useState<any[]>([]);
   const [loadingAdminInvestments, setLoadingAdminInvestments] = useState(false);
   const [adminTab, setAdminTab] = useState<'projects' | 'investments'>('projects');
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [selectedProjectForUpload, setSelectedProjectForUpload] = useState<string | null>(null);
+  const [uploadingFile, setUploadingFile] = useState(false);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadDescription, setUploadDescription] = useState('');
 
   const loadAccountData = useCallback(async () => {
     if (!account) {
@@ -751,6 +758,50 @@ export default function Home() {
       loadAccountData,
     ],
   );
+
+  const handleUploadFile = useCallback(async () => {
+    if (!selectedProjectForUpload || !uploadFile) {
+      alert('Selecione um projeto e um arquivo');
+      return;
+    }
+
+    setUploadingFile(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', uploadFile);
+      formData.append('projectId', selectedProjectForUpload);
+      if (uploadDescription) {
+        formData.append('description', uploadDescription);
+      }
+
+      const response = await fetch('/api/admin/projects/files', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Erro ao fazer upload');
+      }
+
+      // Limpar formulário
+      setUploadFile(null);
+      setUploadDescription('');
+      setShowUploadModal(false);
+      setSelectedProjectForUpload(null);
+
+      alert('Arquivo enviado com sucesso!');
+    } catch (error: any) {
+      alert(error.message || 'Erro ao fazer upload do arquivo');
+    } finally {
+      setUploadingFile(false);
+    }
+  }, [selectedProjectForUpload, uploadFile, uploadDescription]);
+
+  const openUploadModal = useCallback((projectId: string) => {
+    setSelectedProjectForUpload(projectId);
+    setShowUploadModal(true);
+  }, []);
 
   const steps = [
     {
@@ -1489,30 +1540,41 @@ export default function Home() {
                           </div>
                         </div>
                       </div>
-                      <motion.button
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => handleIssueToken(project)}
-                        disabled={
-                          !isConnected ||
-                          !account ||
-                          isWalletLoading ||
-                          issuingProjectId === project.id
-                        }
-                        className="w-full px-4 py-3 bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700 text-white rounded-xl font-semibold transition-all duration-300 flex items-center justify-center gap-2 shadow-md hover:shadow-lg disabled:opacity-60 disabled:cursor-not-allowed"
-                      >
-                        {issuingProjectId === project.id ? (
-                          <>
-                            <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                            Emitindo...
-                          </>
-                        ) : (
-                          <>
-                            Emitir {project.name}
-                            <ArrowRight className="w-5 h-5" />
-                          </>
-                        )}
-                      </motion.button>
+                      <div className="flex gap-2">
+                        <motion.button
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => openUploadModal(project.id)}
+                          className="flex-1 px-4 py-3 bg-gray-500 hover:bg-gray-600 dark:bg-gray-600 dark:hover:bg-gray-700 text-white rounded-xl font-semibold transition-all duration-300 flex items-center justify-center gap-2 shadow-md hover:shadow-lg"
+                        >
+                          <FileText className="w-5 h-5" />
+                          Arquivo
+                        </motion.button>
+                        <motion.button
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => handleIssueToken(project)}
+                          disabled={
+                            !isConnected ||
+                            !account ||
+                            isWalletLoading ||
+                            issuingProjectId === project.id
+                          }
+                          className="flex-1 px-4 py-3 bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700 text-white rounded-xl font-semibold transition-all duration-300 flex items-center justify-center gap-2 shadow-md hover:shadow-lg disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                          {issuingProjectId === project.id ? (
+                            <>
+                              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                              Emitindo...
+                            </>
+                          ) : (
+                            <>
+                              Emitir {project.name}
+                              <ArrowRight className="w-5 h-5" />
+                            </>
+                          )}
+                        </motion.button>
+                      </div>
                     </motion.div>
                   );
                 })}
@@ -1833,6 +1895,115 @@ export default function Home() {
                       <>
                         <Plus className="w-5 h-5" />
                         Criar Projeto
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Modal de Upload de Arquivo */}
+        {showUploadModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-md w-full p-6"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-bold text-gray-800 dark:text-white flex items-center gap-2">
+                  <Upload className="w-6 h-6" />
+                  Enviar Arquivo
+                </h2>
+                <button
+                  onClick={() => {
+                    setShowUploadModal(false);
+                    setUploadFile(null);
+                    setUploadDescription('');
+                    setSelectedProjectForUpload(null);
+                  }}
+                  className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+                </button>
+              </div>
+
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleUploadFile();
+                }}
+                className="space-y-4"
+              >
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                    Arquivo
+                  </label>
+                  <input
+                    type="file"
+                    onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
+                    accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.rar,.jpg,.jpeg,.png,.gif,.txt,.csv,.json,.xml,.kml,.kmz"
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    required
+                  />
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    Formatos permitidos: PDF, DOC, DOCX, XLS, XLSX, PPT, PPTX, ZIP, RAR, imagens, texto, CSV, JSON, XML, KML, KMZ (máx. 50MB)
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                    Descrição (opcional)
+                  </label>
+                  <textarea
+                    value={uploadDescription}
+                    onChange={(e) => setUploadDescription(e.target.value)}
+                    rows={3}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="Descreva o conteúdo do arquivo..."
+                  />
+                </div>
+
+                {uploadFile && (
+                  <div className="p-3 bg-gray-50 dark:bg-gray-900 rounded-lg">
+                    <p className="text-sm font-medium text-gray-800 dark:text-white">
+                      {uploadFile.name}
+                    </p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      {(uploadFile.size / 1024 / 1024).toFixed(2)} MB
+                    </p>
+                  </div>
+                )}
+
+                <div className="flex gap-4 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowUploadModal(false);
+                      setUploadFile(null);
+                      setUploadDescription('');
+                      setSelectedProjectForUpload(null);
+                    }}
+                    className="flex-1 px-6 py-3 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-white rounded-xl font-semibold hover:bg-gray-300 dark:hover:bg-gray-600 transition"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={uploadingFile || !uploadFile}
+                    className="flex-1 px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 dark:from-blue-500 dark:to-blue-600 text-white rounded-xl font-semibold hover:shadow-lg transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {uploadingFile ? (
+                      <>
+                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        Enviando...
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-5 h-5" />
+                        Enviar
                       </>
                     )}
                   </button>

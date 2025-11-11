@@ -155,17 +155,34 @@ async function sendXRP(
 ): Promise<string> {
   const amountDrops = xrpToDrops(String(amountXRP));
 
+<<<<<<< HEAD
   const payment = {
+=======
+  // Preparar transação
+  const transaction = {
+>>>>>>> 7c4bd2de4e285cbff2f77948842579794d22de2e
     TransactionType: 'Payment',
     Account: from.address,
     Destination: to,
     Amount: amountDrops,
   };
+<<<<<<< HEAD
   const prepared = await client.autofill(payment);
   const signed = from.sign(prepared);
   const response = await client.submitAndWait(signed.tx_blob);
+=======
+>>>>>>> 7c4bd2de4e285cbff2f77948842579794d22de2e
 
-  return response.result.hash;
+  // Autofill
+  const prepared = await client.autofill(transaction);
+
+  // Assinar
+  const signed = from.sign(prepared);
+
+  // Submeter e aguardar
+  const response = await client.submitAndWait(signed.tx_blob);
+
+  return response.result.hash || response.result.tx_json?.hash || '';
 }
 
 /**

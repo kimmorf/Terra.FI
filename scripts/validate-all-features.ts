@@ -19,6 +19,17 @@ import { Client, Wallet, xrpToDrops } from 'xrpl';
 import * as fs from 'fs';
 import * as path from 'path';
 
+// Função auxiliar para preparar, assinar e submeter transações
+async function submitTransaction(
+  client: Client,
+  wallet: Wallet,
+  transaction: any
+): Promise<any> {
+  const prepared = await client.autofill(transaction);
+  const signed = wallet.sign(prepared);
+  return await client.submitAndWait(signed.tx_blob);
+}
+
 const XRPL_ENDPOINTS = {
   testnet: 'wss://s.altnet.rippletest.net:51233',
   devnet: 'wss://s.devnet.rippletest.net:51233',
@@ -234,54 +245,42 @@ async function validateAllFeatures(network: 'testnet' | 'devnet' = 'testnet') {
     console.log(`1️⃣  Compra Primária...`);
     try {
       // Emitir token
-      await client.submitAndWait(
-        {
-          TransactionType: 'MPTokenIssuanceCreate',
-          Account: issuer.classicAddress,
-          Currency: currency,
-          Amount: amount,
-          Decimals: 2,
-          Transferable: true,
-        },
-        { wallet: issuer, autofill: true }
-      );
+      await submitTransaction(client, issuer, {
+        TransactionType: 'MPTokenIssuanceCreate',
+        Account: issuer.classicAddress,
+        Currency: currency,
+        Amount: amount,
+        Decimals: 2,
+        Transferable: true,
+      });
 
       // Autorizar
-      await client.submitAndWait(
-        {
-          TransactionType: 'MPTokenAuthorize',
-          Account: issuer.classicAddress,
-          Currency: currency,
-          Holder: investorA.classicAddress,
-          Authorize: true,
-        },
-        { wallet: issuer, autofill: true }
-      );
+      await submitTransaction(client, issuer, {
+        TransactionType: 'MPTokenAuthorize',
+        Account: issuer.classicAddress,
+        Currency: currency,
+        Holder: investorA.classicAddress,
+        Authorize: true,
+      });
 
       // Compra (payment + mpt send)
-      const payment = await client.submitAndWait(
-        {
-          TransactionType: 'Payment',
-          Account: investorA.classicAddress,
-          Destination: issuer.classicAddress,
-          Amount: xrpToDrops('10'),
-        },
-        { wallet: investorA, autofill: true }
-      );
+      const payment = await submitTransaction(client, investorA, {
+        TransactionType: 'Payment',
+        Account: investorA.classicAddress,
+        Destination: issuer.classicAddress,
+        Amount: xrpToDrops('10'),
+      });
 
-      const mptSend = await client.submitAndWait(
-        {
-          TransactionType: 'Payment',
-          Account: issuer.classicAddress,
-          Destination: investorA.classicAddress,
-          Amount: {
-            currency,
-            issuer: issuer.classicAddress,
-            value: '1000', // 10.00 tokens
-          },
+      const mptSend = await submitTransaction(client, issuer, {
+        TransactionType: 'Payment',
+        Account: issuer.classicAddress,
+        Destination: investorA.classicAddress,
+        Amount: {
+          currency,
+          issuer: issuer.classicAddress,
+          value: '1000', // 10.00 tokens
         },
-        { wallet: issuer, autofill: true }
-      );
+      });
 
       report.features.primaryPurchase.passed = true;
       report.summary.passed++;
@@ -320,20 +319,17 @@ async function validateAllFeatures(network: 'testnet' | 'devnet' = 'testnet') {
     // ============================================
     console.log(`2️⃣  DEX/OfferCreate...`);
     try {
-      const offer = await client.submitAndWait(
-        {
-          TransactionType: 'OfferCreate',
-          Account: investorA.classicAddress,
-          TakerGets: {
-            currency,
-            issuer: issuer.classicAddress,
-            value: '100', // 1.00 token
-          },
-          TakerPays: xrpToDrops('0.1'),
-          Expiration: Math.floor(Date.now() / 1000) + 3600,
+      const offer = await submitTransaction(client, investorA, {
+        TransactionType: 'OfferCreate',
+        Account: investorA.classicAddress,
+        TakerGets: {
+          currency,
+          issuer: issuer.classicAddress,
+          value: '100', // 1.00 token
         },
-        { wallet: investorA, autofill: true }
-      );
+        TakerPays: xrpToDrops('0.1'),
+        Expiration: Math.floor(Date.now() / 1000) + 3600,
+      });
 
       report.features.dex.passed = true;
       report.summary.passed++;
@@ -371,28 +367,22 @@ async function validateAllFeatures(network: 'testnet' | 'devnet' = 'testnet') {
     console.log(`3️⃣  Colateralização (Freeze/Unfreeze)...`);
     try {
       // Freeze
-      const freeze = await client.submitAndWait(
-        {
-          TransactionType: 'MPTokenFreeze',
-          Account: issuer.classicAddress,
-          Currency: currency,
-          Holder: investorA.classicAddress,
-          Freeze: true,
-        },
-        { wallet: issuer, autofill: true }
-      );
+      const freeze = await submitTransaction(client, issuer, {
+        TransactionType: 'MPTokenFreeze',
+        Account: issuer.classicAddress,
+        Currency: currency,
+        Holder: investorA.classicAddress,
+        Freeze: true,
+      });
 
       // Unfreeze
-      const unfreeze = await client.submitAndWait(
-        {
-          TransactionType: 'MPTokenFreeze',
-          Account: issuer.classicAddress,
-          Currency: currency,
-          Holder: investorA.classicAddress,
-          Freeze: false,
-        },
-        { wallet: issuer, autofill: true }
-      );
+      const unfreeze = await submitTransaction(client, issuer, {
+        TransactionType: 'MPTokenFreeze',
+        Account: issuer.classicAddress,
+        Currency: currency,
+        Holder: investorA.classicAddress,
+        Freeze: false,
+      });
 
       report.features.collateralization.passed = true;
       report.summary.passed++;
@@ -431,28 +421,22 @@ async function validateAllFeatures(network: 'testnet' | 'devnet' = 'testnet') {
     console.log(`4️⃣  Autorização (Authorize/Deauthorize)...`);
     try {
       // Authorize
-      const authorize = await client.submitAndWait(
-        {
-          TransactionType: 'MPTokenAuthorize',
-          Account: issuer.classicAddress,
-          Currency: currency,
-          Holder: investorB.classicAddress,
-          Authorize: true,
-        },
-        { wallet: issuer, autofill: true }
-      );
+      const authorize = await submitTransaction(client, issuer, {
+        TransactionType: 'MPTokenAuthorize',
+        Account: issuer.classicAddress,
+        Currency: currency,
+        Holder: investorB.classicAddress,
+        Authorize: true,
+      });
 
       // Deauthorize
-      const deauthorize = await client.submitAndWait(
-        {
-          TransactionType: 'MPTokenAuthorize',
-          Account: issuer.classicAddress,
-          Currency: currency,
-          Holder: investorB.classicAddress,
-          Authorize: false,
-        },
-        { wallet: issuer, autofill: true }
-      );
+      const deauthorize = await submitTransaction(client, issuer, {
+        TransactionType: 'MPTokenAuthorize',
+        Account: issuer.classicAddress,
+        Currency: currency,
+        Holder: investorB.classicAddress,
+        Authorize: false,
+      });
 
       report.features.authorization.passed = true;
       report.summary.passed++;
