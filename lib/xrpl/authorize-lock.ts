@@ -6,7 +6,8 @@
 import { getPrismaClient } from '../prisma';
 import { reliableSubmitV2 as reliableSubmit, generateIdempotencyKey } from './reliable-submission-v2';
 import { buildMPTokenAuthorizeTransaction, buildPaymentTransaction } from '../crossmark/transactions';
-import { prepareAndSignTransaction } from './transaction-helper';
+import { Wallet } from 'xrpl';
+import { xrplPool } from './pool';
 
 export interface AuthorizeAndTransferParams {
   issuer: string;
@@ -158,7 +159,12 @@ export async function authorizeAndTransferAtomic(
       throw new Error('issuerSeed é obrigatório para assinar transações');
     }
 
-    // Já está corrigido acima
+    // Assina transação manualmente
+    const issuerWallet = Wallet.fromSeed(params.issuerSeed);
+    const client = await xrplPool.getClient(params.network);
+    const prepared = await client.autofill(authorizeTx);
+    const signed = issuerWallet.sign(prepared);
+    const authorizeTxBlob = signed.tx_blob;
 
     const authorizeResult = await reliableSubmit(authorizeTxBlob, params.network, {
       idempotencyKey: `${idempotencyKey}_authorize`,
@@ -203,7 +209,11 @@ export async function authorizeAndTransferAtomic(
     });
 
     // Assina transação antes de submeter
-    const transferIssuer = xrpl.Wallet.fromSeed(params.issuerSeed!);
+    if (!params.issuerSeed) {
+      throw new Error('issuerSeed é obrigatório para assinar transações');
+    }
+    
+    const transferIssuer = Wallet.fromSeed(params.issuerSeed);
     const transferClient = await xrplPool.getClient(params.network);
     const transferPrepared = await transferClient.autofill(transferTx);
     const transferSigned = transferIssuer.sign(transferPrepared);
