@@ -1105,70 +1105,92 @@ export default function Home() {
               )}
 
               {isConnected && account && (
-                <div className="mt-6 p-4 bg-gray-50 dark:bg-gray-700/50 rounded-xl border border-gray-200 dark:border-gray-600">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Rede</p>
-                      <p className="font-semibold text-gray-800 dark:text-white capitalize">
-                        {account.network}
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4"
+                >
+                  <div className="p-5 bg-gradient-to-br from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 rounded-2xl border border-blue-200 dark:border-blue-800 shadow-lg">
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className="p-2 bg-blue-500/10 dark:bg-blue-400/20 rounded-lg">
+                        <Zap className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                      </div>
+                      <p className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide">
+                        Rede
                       </p>
                     </div>
-                    {xrpBalance !== null && (
-                      <div>
-                        <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Saldo XRP</p>
-                        <p className="font-semibold text-gray-800 dark:text-white">
-                          {xrpBalance.toFixed(2)} XRP
+                    <p className="text-xl font-bold text-gray-800 dark:text-white capitalize">
+                      {account.network}
+                    </p>
+                  </div>
+                  {xrpBalance !== null && (
+                    <div className="p-5 bg-gradient-to-br from-yellow-50 to-orange-50 dark:from-yellow-900/20 dark:to-orange-900/20 rounded-2xl border border-yellow-200 dark:border-yellow-800 shadow-lg">
+                      <div className="flex items-center gap-3 mb-2">
+                        <div className="p-2 bg-yellow-500/10 dark:bg-yellow-400/20 rounded-lg">
+                          <Coins className="w-5 h-5 text-yellow-600 dark:text-yellow-400" />
+                        </div>
+                        <p className="text-xs font-semibold text-yellow-600 dark:text-yellow-400 uppercase tracking-wide">
+                          Saldo XRP
                         </p>
                       </div>
-                    )}
-                  </div>
-                </div>
+                      <p className="text-xl font-bold text-gray-800 dark:text-white">
+                        {xrpBalance.toFixed(2)} <span className="text-sm text-gray-500 dark:text-gray-400">XRP</span>
+                      </p>
+                    </div>
+                  )}
+                </motion.div>
               )}
 
               {/* Abas do Investidor - só aparecem quando wallet está conectada */}
               {isConnected && (
-                <div className="mt-6">
-                  <div className="flex gap-4 mb-6 border-b border-gray-200 dark:border-gray-700">
-                      <button
+                <div className="mt-12 pt-8 border-t border-gray-200 dark:border-gray-700">
+                  <div className="flex gap-2 mb-8 bg-gray-100 dark:bg-gray-800/50 p-1.5 rounded-2xl border border-gray-200 dark:border-gray-700">
+                      <motion.button
                         onClick={() => setInvestorTab('available-tokens')}
-                        className={`px-4 py-2 font-semibold transition-all duration-300 border-b-2 ${
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        className={`flex-1 px-4 py-3 font-semibold transition-all duration-300 rounded-xl ${
                           investorTab === 'available-tokens'
-                            ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
-                            : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                            ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg'
+                            : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
                         }`}
                       >
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center justify-center gap-2">
                           <TrendingUp className="w-5 h-5" />
                           Investimentos
                         </div>
-                      </button>
-                      <button
+                      </motion.button>
+                      <motion.button
                         onClick={() => setInvestorTab('my-tokens')}
-                        className={`px-4 py-2 font-semibold transition-all duration-300 border-b-2 ${
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        className={`flex-1 px-4 py-3 font-semibold transition-all duration-300 rounded-xl ${
                           investorTab === 'my-tokens'
-                            ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
-                            : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                            ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg'
+                            : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
                         }`}
                       >
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center justify-center gap-2">
                           <Coins className="w-5 h-5" />
                           Meus Tokens
                         </div>
-                      </button>
+                      </motion.button>
                       {session && (
-                        <button
+                        <motion.button
                           onClick={() => setInvestorTab('investments')}
-                          className={`px-4 py-2 font-semibold transition-all duration-300 border-b-2 ${
+                          whileHover={{ scale: 1.02 }}
+                          whileTap={{ scale: 0.98 }}
+                          className={`flex-1 px-4 py-3 font-semibold transition-all duration-300 rounded-xl ${
                             investorTab === 'investments'
-                              ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
-                              : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                              ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg'
+                              : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
                           }`}
                         >
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center justify-center gap-2">
                             <TrendingUp className="w-5 h-5" />
                             Meus Investimentos
                           </div>
-                        </button>
+                        </motion.button>
                       )}
                   </div>
 
@@ -1204,12 +1226,21 @@ export default function Home() {
                         </div>
                       </div>
                     ) : investmentProjects.length === 0 ? (
-                      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-12 text-center border border-gray-200 dark:border-gray-700">
-                        <TrendingUp className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                        <p className="text-gray-600 dark:text-gray-300 text-lg mb-4">
-                          Nenhum projeto de investimento disponível no momento.
+                      <motion.div
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className="bg-white dark:bg-gray-800/90 rounded-3xl shadow-xl p-12 text-center border border-gray-200 dark:border-gray-700 backdrop-blur-sm"
+                      >
+                        <div className="w-20 h-20 bg-gradient-to-br from-blue-100 to-purple-100 dark:from-blue-900/30 dark:to-purple-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
+                          <TrendingUp className="w-10 h-10 text-blue-500 dark:text-blue-400" />
+                        </div>
+                        <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-2">
+                          Nenhum projeto de investimento
+                        </h3>
+                        <p className="text-gray-600 dark:text-gray-300">
+                          Você ainda não possui investimentos registrados.
                         </p>
-                      </div>
+                      </motion.div>
                     ) : (
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         {investmentProjects.map((project) => (
@@ -1243,30 +1274,51 @@ export default function Home() {
                         <p className="text-sm">{tokensError}</p>
                       </div>
                     ) : mptokens.length > 0 ? (
-                      <div className="space-y-3">
-                        {mptokens.map((token, index) => (
-                          <div
-                            key={`${token.currency}-${token.issuer}-${index}`}
-                            className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-600"
-                          >
-                            <div className="flex justify-between items-center">
-                              <div>
-                                <p className="font-semibold text-gray-800 dark:text-white">
-                                  {token.currency}
-                                </p>
-                                <p className="text-sm text-gray-500 dark:text-gray-400">
-                                  {token.issuer}
-                                </p>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {mptokens.map((token, index) => {
+                          const tokenType = token.currency?.slice(0, 4) || 'MPT';
+                          const TokenIcon = typeIcons[tokenType as keyof typeof typeIcons] || Coins;
+                          const tokenColor = typeColors[tokenType as keyof typeof typeColors] || 'from-blue-400 to-blue-600';
+                          
+                          return (
+                            <motion.div
+                              key={`${token.currency}-${token.issuer}-${index}`}
+                              initial={{ opacity: 0, y: 20 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              transition={{ delay: index * 0.1 }}
+                              whileHover={{ scale: 1.02, y: -2 }}
+                              className="group relative p-5 bg-white dark:bg-gray-800/90 rounded-2xl border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 hover:shadow-xl transition-all duration-300 overflow-hidden backdrop-blur-sm"
+                            >
+                              <div className={`absolute inset-0 bg-gradient-to-br ${tokenColor} opacity-0 group-hover:opacity-5 transition-opacity duration-300`} />
+                              <div className="relative flex items-center justify-between">
+                                <div className="flex items-center gap-4 flex-1 min-w-0">
+                                  <div className={`p-3 bg-gradient-to-br ${tokenColor} rounded-xl shadow-lg`}>
+                                    <TokenIcon className="w-6 h-6 text-white" />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="font-bold text-lg text-gray-800 dark:text-white mb-1 truncate">
+                                      {token.currency}
+                                    </p>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 font-mono truncate">
+                                      {token.issuer.slice(0, 10)}...{token.issuer.slice(-6)}
+                                    </p>
+                                  </div>
+                                </div>
+                                <div className="text-right ml-4">
+                                  <p className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 dark:from-blue-400 dark:to-purple-400 bg-clip-text text-transparent">
+                                    {parseFloat(token.balance).toLocaleString('pt-BR', {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 6,
+                                    })}
+                                  </p>
+                                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                    tokens
+                                  </p>
+                                </div>
                               </div>
-                              <p className="text-lg font-bold text-blue-600 dark:text-blue-400">
-                                {parseFloat(token.balance).toLocaleString('pt-BR', {
-                                  minimumFractionDigits: 2,
-                                  maximumFractionDigits: 6,
-                                })}
-                              </p>
-                            </div>
-                          </div>
-                        ))}
+                            </motion.div>
+                          );
+                        })}
                       </div>
                     ) : (
                       <div className="text-center py-8 text-gray-500 dark:text-gray-400">
@@ -1310,12 +1362,21 @@ export default function Home() {
                         ))}
                       </div>
                     ) : (
-                      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-12 text-center border border-gray-200 dark:border-gray-700">
-                        <TrendingUp className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                        <p className="text-gray-600 dark:text-gray-300 text-lg mb-4">
-                          Nenhum investimento disponível no momento.
+                      <motion.div
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className="bg-white dark:bg-gray-800/90 rounded-3xl shadow-xl p-12 text-center border border-gray-200 dark:border-gray-700 backdrop-blur-sm"
+                      >
+                        <div className="w-20 h-20 bg-gradient-to-br from-blue-100 to-purple-100 dark:from-blue-900/30 dark:to-purple-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
+                          <TrendingUp className="w-10 h-10 text-blue-500 dark:text-blue-400" />
+                        </div>
+                        <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-2">
+                          Nenhum investimento disponível
+                        </h3>
+                        <p className="text-gray-600 dark:text-gray-300">
+                          Novos projetos de investimento serão adicionados em breve.
                         </p>
-                      </div>
+                      </motion.div>
                     )}
                   </div>
                 )}

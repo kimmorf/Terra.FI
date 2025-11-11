@@ -56,9 +56,10 @@ export async function POST(request: NextRequest) {
       headers: request.headers,
     });
 
-    if (!session) {
-      return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });
-    }
+    // Permitir criação de projetos sem autenticação para tokens criados via Crossmark
+    // if (!session) {
+    //   return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });
+    // }
 
     const body = await request.json();
     const { name, type, description, purpose, example, minAmount, maxAmount, targetAmount } = body;
