@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getMPTInfo, getMPTBalance, isHolderAuthorized } from '@/lib/xrpl/mpt-helpers';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * API Route para buscar informações de MPT
  * 
