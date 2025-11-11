@@ -18,7 +18,7 @@ import {
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { BackgroundParticles } from '@/components/BackgroundParticles';
 import { useCrossmarkContext } from '@/lib/crossmark/CrossmarkProvider';
-import { trustSetToken, sendMPToken, authorizeMPToken } from '@/lib/crossmark/transactions';
+import { trustSetToken, sendMPToken, authorizeMPToken, extractTransactionHash } from '@/lib/crossmark/transactions';
 import { registerAction } from '@/lib/elysia-client';
 import { STABLECOINS, findStablecoin } from '@/lib/tokens/stablecoins';
 import { TOKEN_PRESETS, type TokenPreset } from '@/lib/tokens/presets';
@@ -49,7 +49,9 @@ export default function TradeTokensPage() {
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     const [purchaseAmount, setPurchaseAmount] = useState('100');
-    const [purchaseProject, setPurchaseProject] = useState(TOKEN_PRESETS[0]?.id ?? 'LAND');
+    const [purchaseProject, setPurchaseProject] = useState<TokenPreset['id']>(
+        TOKEN_PRESETS[0]?.id ?? 'LAND',
+    );
     const [purchaseMessage, setPurchaseMessage] = useState<string | null>(null);
     const [purchaseError, setPurchaseError] = useState<string | null>(null);
 
@@ -165,7 +167,7 @@ export default function TradeTokensPage() {
                 issuer: selectedStable.issuer,
                 limit: '1000000',
             });
-            const hash = extractHash(response);
+            const hash = extractTransactionHash(response);
             setTrustlineStatus('ok');
             setPurchaseMessage('Trustline criada com sucesso.');
             setPurchaseError(null);
@@ -198,7 +200,7 @@ export default function TradeTokensPage() {
                 holder: account.address,
                 authorize: true,
             });
-            const hash = extractHash(response);
+            const hash = extractTransactionHash(response);
             setAuthorized(true);
             setPurchaseMessage('Autorização solicitada. Confirme na Crossmark.');
             setPurchaseError(null);
@@ -244,7 +246,7 @@ export default function TradeTokensPage() {
                 issuer: selectedStable.issuer,
                 memo: `Compra ${project.label}`,
             });
-            const hash = extractHash(response);
+            const hash = extractTransactionHash(response);
 
             await registerAction({
                 type: 'payment',
@@ -296,7 +298,7 @@ export default function TradeTokensPage() {
                 issuer: issuerAddress || account.address,
                 memo: 'Venda MPT',
             });
-            const hash = extractHash(response);
+            const hash = extractTransactionHash(response);
 
             await registerAction({
                 type: 'payment',

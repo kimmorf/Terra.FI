@@ -5,13 +5,13 @@ import { getPrismaClient } from './prisma';
 const prisma = getPrismaClient();
 
 export const auth = betterAuth({
-  ...(prisma
-    ? {
-        database: prismaAdapter(prisma, {
-          provider: 'postgresql',
-        }),
-      }
-    : {}),
+  database: prisma
+    ? prismaAdapter(prisma, {
+        provider: 'postgresql',
+      })
+    : ((): never => {
+        throw new Error('DATABASE_URL não configurada. better-auth requer acesso ao banco.');
+      })(),
   emailAndPassword: {
     enabled: true,
   },
