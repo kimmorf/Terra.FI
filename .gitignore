@@ -39,6 +39,9 @@ next-env.d.ts
 # prisma
 /prisma/migrations
 
+# uploads (user uploaded files)
+/uploads/
+
 # test configs (contain secrets)
 /scripts/tests/config/accounts-*.json
 /scripts/tests/config/.env.*

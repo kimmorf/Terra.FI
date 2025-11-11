@@ -1,8 +1,0 @@
-{
-"type": "FeatureCollection",
-"name": "no5373 - 107624 m2kmz",
-"features": [
-{ "type": "Feature", "properties": { "Name": "#5373 - 1.076,24 m²" }, "geometry": { "type": "Point", "coordinates": [ -43.2248272, -22.9229976 ] } },
-{ "type": "Feature", "properties": { "Name": "#5373 - 1.076,24 m²" }, "geometry": { "type": "Polygon", "coordinates": [ [ [ -43.2252473, -22.9229802 ], [ -43.2252419, -22.9231556 ], [ -43.2246733, -22.9230778 ], [ -43.2246974, -22.922919 ], [ -43.2252473, -22.9229802 ] ] ] } }
-]
-}

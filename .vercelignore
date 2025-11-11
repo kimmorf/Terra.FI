@@ -5,3 +5,8 @@ node_modules
 .env*.local
 prisma/migrations
 
+# Excluir pasta de uploads completamente (arquivos de usuário não devem ser incluídos no build)
+uploads/
+uploads/**
+**/uploads/**
+

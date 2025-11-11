@@ -15,13 +15,20 @@ const nextConfig = {
       use: 'ignore-loader',
     });
     
+    // Excluir pasta uploads do bundle (arquivos de usuário não devem ser incluídos)
+    // Isso previne que arquivos de upload sejam incluídos no bundle do serverless function
+    config.module.rules.push({
+      test: /uploads\/projects\/.*/,
+      use: 'ignore-loader',
+    });
+    
     // Otimizar resolução de módulos
     config.resolve.fallback = {
       ...config.resolve.fallback,
       fs: false,
     };
 
-    // No servidor, configurar módulos nativos do WebSocket
+    // No servidor, configurar módulos nativos do WebSocket e excluir uploads
     if (isServer) {
       const webpack = require('webpack');
       const path = require('path');
@@ -33,9 +40,19 @@ const nextConfig = {
         'utf-8-validate': path.resolve(__dirname, 'lib/utils/utf8-validate-stub.js'),
       };
       
+      // Inicializar plugins se não existir
+      config.plugins = config.plugins || [];
+      
+      // Adicionar plugin para ignorar imports de uploads (previne inclusão no bundle)
+      config.plugins.push(
+        new webpack.IgnorePlugin({
+          resourceRegExp: /^\.\/uploads/,
+          contextRegExp: /uploads/,
+        })
+      );
+      
       // Substituir módulos opcionais do ws por stubs
       // Isso evita que o webpack tente processar código que referencia esses módulos
-      config.plugins = config.plugins || [];
       config.plugins.push(
         new webpack.NormalModuleReplacementPlugin(
           /^bufferutil$/,
