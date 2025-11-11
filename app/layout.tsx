@@ -6,7 +6,7 @@ import { Providers } from './providers';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'TerraFi.MPT - Plataforma de Tokenização de Terrenos na XRPL',
+  title: 'Terra.FI - Plataforma de Tokenização de Terrenos na XRPL',
   description: 'Plataforma de Tokenização de Terrenos na XRPL',
 };
 
