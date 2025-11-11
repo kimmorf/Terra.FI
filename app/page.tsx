@@ -1,12 +1,12 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { 
-  Wallet, 
-  Shield, 
-  Download, 
-  MousePointerClick, 
+import {
+  Wallet,
+  Shield,
+  Download,
+  MousePointerClick,
   CheckCircle2,
   Sparkles,
   Building2,
@@ -19,11 +19,17 @@ import {
   Lock,
   ArrowRight,
   Plus,
-  X
+  X,
+  LogOut,
+  Copy,
+  Check,
+  AlertCircle,
 } from 'lucide-react';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { BackgroundParticles } from '@/components/BackgroundParticles';
 import { useSession } from '@/lib/auth-client';
+import { useCrossmarkContext } from '@/lib/crossmark/CrossmarkProvider';
+import { getAccountMPTokens, getXRPBalance } from '@/lib/xrpl/account';
 
 interface AdminProject {
   id: string;
@@ -55,8 +61,19 @@ const typeColors = {
 
 export default function Home() {
   const { data: session } = useSession();
-  const [selectedRole, setSelectedRole] = useState<'investidor' | 'administrador'>('investidor');
-  const [isConnecting, setIsConnecting] = useState(false);
+  const {
+    isInstalled,
+    isConnected,
+    isLoading: isWalletLoading,
+    account,
+    error: crossmarkError,
+    connect,
+    disconnect,
+    refreshAccount,
+  } = useCrossmarkContext();
+
+  const [selectedRole, setSelectedRole] =
+    useState<'investidor' | 'administrador'>('investidor');
   const [adminProjects, setAdminProjects] = useState<AdminProject[]>([]);
   const [loadingProjects, setLoadingProjects] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -71,20 +88,89 @@ export default function Home() {
     maxAmount: '',
     targetAmount: '',
   });
+  const [mptokens, setMptokens] = useState<any[]>([]);
+  const [xrpBalance, setXrpBalance] = useState<number | null>(null);
+  const [loadingTokens, setLoadingTokens] = useState(false);
+  const [tokensError, setTokensError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
-  const handleConnect = () => {
-    setIsConnecting(true);
-    // Simular conexão
-    setTimeout(() => {
-      setIsConnecting(false);
-    }, 2000);
-  };
+  const loadAccountData = useCallback(async () => {
+    if (!account) {
+      return;
+    }
+
+    setLoadingTokens(true);
+    setTokensError(null);
+
+    try {
+      const [tokens, balance] = await Promise.all([
+        getAccountMPTokens(account.address, account.network),
+        getXRPBalance(account.address, account.network),
+      ]);
+
+      setMptokens(tokens);
+      setXrpBalance(balance);
+    } catch (error) {
+      console.error('Erro ao carregar dados da conta XRPL:', error);
+      setTokensError('Não foi possível carregar os dados da conta na XRPL.');
+      setMptokens([]);
+      setXrpBalance(null);
+    } finally {
+      setLoadingTokens(false);
+    }
+  }, [account]);
+
+  const handleConnect = useCallback(async () => {
+    const success = await connect();
+    if (success) {
+      refreshAccount();
+    }
+  }, [connect, refreshAccount]);
+
+  const handleDisconnect = useCallback(() => {
+    disconnect();
+    setMptokens([]);
+    setXrpBalance(null);
+    setTokensError(null);
+    setCopied(false);
+  }, [disconnect]);
+
+  const copyAddress = useCallback(() => {
+    if (!account?.address || typeof navigator === 'undefined') {
+      return;
+    }
+
+    navigator.clipboard
+      .writeText(account.address)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      })
+      .catch((error) => {
+        console.error('Erro ao copiar endereço:', error);
+      });
+  }, [account?.address]);
+
+  const formatAddress = useCallback((address: string) => {
+    if (!address) return '';
+    return `${address.slice(0, 8)}...${address.slice(-8)}`;
+  }, []);
 
   useEffect(() => {
     if (selectedRole === 'administrador') {
       fetchAdminProjects();
     }
   }, [selectedRole]);
+
+  useEffect(() => {
+    if (isConnected && account) {
+      loadAccountData();
+    } else {
+      setMptokens([]);
+      setXrpBalance(null);
+      setTokensError(null);
+    }
+  }, [isConnected, account, loadAccountData]);
 
   const fetchAdminProjects = async () => {
     try {
@@ -247,26 +333,169 @@ export default function Home() {
                     Visualize seus tokens MPT na XRPL
                   </p>
                 </div>
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={handleConnect}
-                  disabled={isConnecting}
-                  className="px-8 py-4 bg-gradient-to-r from-blue-600 to-purple-600 dark:from-blue-500 dark:to-purple-500 text-white rounded-xl font-semibold text-lg shadow-lg hover:shadow-xl transition-all duration-300 flex items-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isConnecting ? (
-                    <>
-                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      Conectando...
-                    </>
-                  ) : (
-                    <>
-                      <Wallet className="w-6 h-6" />
-                      Conectar Crossmark
-                    </>
-                  )}
-                </motion.button>
+                {isConnected && account ? (
+                  <div className="flex flex-col items-end gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="bg-green-100 dark:bg-green-900/30 px-4 py-2 rounded-lg">
+                        <div className="flex items-center gap-2">
+                          <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                          <span className="text-sm font-semibold text-green-700 dark:text-green-400">
+                            Conectado
+                          </span>
+                        </div>
+                      </div>
+                      <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={handleDisconnect}
+                        className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg font-semibold text-sm shadow-md hover:shadow-lg transition-all duration-300 flex items-center gap-2"
+                      >
+                        <LogOut className="w-4 h-4" />
+                        Desconectar
+                      </motion.button>
+                    </div>
+                    <div className="flex items-center gap-2 bg-gray-100 dark:bg-gray-700 px-4 py-2 rounded-lg">
+                      <span className="text-sm font-mono text-gray-700 dark:text-gray-300">
+                        {formatAddress(account.address)}
+                      </span>
+                      <motion.button
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.9 }}
+                        onClick={copyAddress}
+                        className="p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
+                        aria-label="Copiar endereço"
+                      >
+                        {copied ? (
+                          <Check className="w-4 h-4 text-green-500" />
+                        ) : (
+                          <Copy className="w-4 h-4 text-gray-500" />
+                        )}
+                      </motion.button>
+                    </div>
+                  </div>
+                ) : (
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={handleConnect}
+                    disabled={isWalletLoading}
+                    className="px-8 py-4 bg-gradient-to-r from-blue-600 to-purple-600 dark:from-blue-500 dark:to-purple-500 text-white rounded-xl font-semibold text-lg shadow-lg hover:shadow-xl transition-all duration-300 flex items-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isWalletLoading ? (
+                      <>
+                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        Conectando...
+                      </>
+                    ) : !isInstalled ? (
+                      <>
+                        <Download className="w-6 h-6" />
+                        Instalar Crossmark
+                      </>
+                    ) : (
+                      <>
+                        <Wallet className="w-6 h-6" />
+                        Conectar Crossmark
+                      </>
+                    )}
+                  </motion.button>
+                )}
               </div>
+
+                {!isInstalled && !isConnected && !isWalletLoading && (
+                  <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-lg">
+                    <p className="text-sm text-blue-700 dark:text-blue-300">
+                      A extensão Crossmark não foi detectada. Baixe em{' '}
+                      <a
+                        className="underline hover:text-blue-600 dark:hover:text-blue-400"
+                        href="https://www.crossmark.io/download"
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        crossmark.io/download
+                      </a>{' '}
+                      e tente novamente.
+                    </p>
+                  </div>
+                )}
+
+                {crossmarkError && (
+                  <div className="mt-4 p-4 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-700 rounded-lg">
+                    <div className="flex items-start gap-3 text-red-700 dark:text-red-300">
+                      <AlertCircle className="w-5 h-5 mt-1" />
+                      <p className="text-sm">{crossmarkError}</p>
+                    </div>
+                  </div>
+                )}
+
+                {isConnected && account && (
+                  <div className="mt-6 p-4 bg-gray-50 dark:bg-gray-700/50 rounded-xl border border-gray-200 dark:border-gray-600">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Rede</p>
+                        <p className="font-semibold text-gray-800 dark:text-white capitalize">
+                          {account.network}
+                        </p>
+                      </div>
+                      {xrpBalance !== null && (
+                        <div>
+                          <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Saldo XRP</p>
+                          <p className="font-semibold text-gray-800 dark:text-white">
+                            {xrpBalance.toFixed(2)} XRP
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {isConnected && (
+                  <div className="mt-6">
+                    <h3 className="text-lg font-semibold text-gray-800 dark:text-white mb-4">
+                      Seus Tokens MPT
+                    </h3>
+                    {loadingTokens ? (
+                      <div className="flex justify-center py-8">
+                        <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                      </div>
+                    ) : tokensError ? (
+                      <div className="flex items-start gap-3 p-4 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-700 rounded-lg text-red-700 dark:text-red-300">
+                        <AlertCircle className="w-5 h-5 mt-1" />
+                        <p className="text-sm">{tokensError}</p>
+                      </div>
+                    ) : mptokens.length > 0 ? (
+                      <div className="space-y-3">
+                        {mptokens.map((token, index) => (
+                          <div
+                            key={`${token.currency}-${token.issuer}-${index}`}
+                            className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-600"
+                          >
+                            <div className="flex justify-between items-center">
+                              <div>
+                                <p className="font-semibold text-gray-800 dark:text-white">
+                                  {token.currency}
+                                </p>
+                                <p className="text-sm text-gray-500 dark:text-gray-400">
+                                  {token.issuer}
+                                </p>
+                              </div>
+                              <p className="text-lg font-bold text-blue-600 dark:text-blue-400">
+                                {parseFloat(token.balance).toLocaleString('pt-BR', {
+                                  minimumFractionDigits: 2,
+                                  maximumFractionDigits: 6,
+                                })}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                        <Coins className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                        <p>Nenhum token MPT encontrado</p>
+                      </div>
+                    )}
+                  </div>
+                )}
 
               {/* Animated Wallet Icon */}
               <div className="mt-8 flex justify-center">
@@ -385,14 +614,47 @@ export default function Home() {
                       Criar Novo Investimento
                     </motion.button>
                   )}
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    className="px-8 py-4 bg-gradient-to-r from-blue-600 to-purple-600 dark:from-blue-500 dark:to-purple-500 text-white rounded-xl font-semibold text-lg shadow-lg hover:shadow-xl transition-all duration-300 flex items-center gap-3"
-                  >
-                    <Wallet className="w-6 h-6" />
-                    Conectar Crossmark
-                  </motion.button>
+                  {isConnected && account ? (
+                    <div className="flex items-center gap-3 bg-gray-100 dark:bg-gray-700 px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-600">
+                      <span className="text-sm font-mono text-gray-700 dark:text-gray-300">
+                        {formatAddress(account.address)}
+                      </span>
+                      <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={handleDisconnect}
+                        className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg font-semibold text-sm shadow-md hover:shadow-lg transition-all duration-300 flex items-center gap-2"
+                      >
+                        <LogOut className="w-4 h-4" />
+                        Desconectar
+                      </motion.button>
+                    </div>
+                  ) : (
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={handleConnect}
+                      disabled={isWalletLoading}
+                      className="px-8 py-4 bg-gradient-to-r from-blue-600 to-purple-600 dark:from-blue-500 dark:to-purple-500 text-white rounded-xl font-semibold text-lg shadow-lg hover:shadow-xl transition-all duration-300 flex items-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isWalletLoading ? (
+                        <>
+                          <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          Conectando...
+                        </>
+                      ) : !isInstalled ? (
+                        <>
+                          <Download className="w-6 h-6" />
+                          Instalar Crossmark
+                        </>
+                      ) : (
+                        <>
+                          <Wallet className="w-6 h-6" />
+                          Conectar Crossmark
+                        </>
+                      )}
+                    </motion.button>
+                  )}
                 </div>
               </div>
             </motion.div>
