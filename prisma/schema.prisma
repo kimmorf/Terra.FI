@@ -242,6 +242,22 @@ model IssuerPermission {
   @@index([network])
 }
 
+model ServiceWallet {
+  id             String   @id @default(cuid())
+  label          String
+  document       String?
+  type           String   @default("issuer")
+  network        String   @default("testnet")
+  address        String   @unique
+  publicKey      String?
+  seedEncrypted  String
+  isActive       Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([type, isActive])
+}
+
 // Purchase Flow - Compra Primária com Idempotência
 model Purchase {
   id             String        @id @default(cuid())

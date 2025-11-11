@@ -27,6 +27,7 @@ import {
   Info,
   FileText,
   Upload,
+  KeyRound,
 } from 'lucide-react';
 import Link from 'next/link';
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -56,6 +57,14 @@ interface AdminProject {
   totalAmount: number;
   targetAmount: number;
   status: string;
+}
+
+interface InvestorServiceWallet {
+  id: string;
+  label: string;
+  address: string;
+  network: 'testnet' | 'devnet' | 'mainnet';
+  type: string;
 }
 
 const typeIcons = {
@@ -124,13 +133,48 @@ export default function Home() {
   const [uploadingFile, setUploadingFile] = useState(false);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadDescription, setUploadDescription] = useState('');
+  const [serviceWallet, setServiceWallet] = useState<InvestorServiceWallet | null>(null);
+  const [loadingServiceWallet, setLoadingServiceWallet] = useState(true);
+
+  const refreshServiceWallet = useCallback(async () => {
+    setLoadingServiceWallet(true);
+    try {
+      const response = await fetch('/api/investor/wallet');
+      if (!response.ok) {
+        setServiceWallet(null);
+        return;
+      }
+      const data = await response.json();
+      setServiceWallet(data.wallet ?? null);
+    } catch (error) {
+      console.error('[App] Falha ao carregar carteira de serviço:', error);
+      setServiceWallet(null);
+    } finally {
+      setLoadingServiceWallet(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshServiceWallet();
+  }, [refreshServiceWallet]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handler = () => refreshServiceWallet();
+    window.addEventListener('storage', handler);
+    return () => window.removeEventListener('storage', handler);
+  }, [refreshServiceWallet]);
+
+  const effectiveAddress = serviceWallet?.address ?? account?.address ?? null;
+  const effectiveNetwork = serviceWallet?.network ?? (account?.network as 'testnet' | 'devnet' | 'mainnet' | undefined) ?? 'testnet';
+  const effectiveWalletId = serviceWallet?.id ?? null;
+  const isWalletConnected = Boolean(effectiveAddress);
 
   const loadAccountData = useCallback(async () => {
-    if (!account) {
+    if (!effectiveAddress) {
       return;
     }
 
-    // Evita recarregar se já está carregando ou se já carregou recentemente
     if (loadingTokens || hasLoadedTokens) {
       return;
     }
@@ -140,8 +184,8 @@ export default function Home() {
 
     try {
       const [tokens, balance] = await Promise.all([
-        getAccountMPTokens(account.address, account.network),
-        getXRPBalance(account.address, account.network),
+        getAccountMPTokens(effectiveAddress, effectiveNetwork),
+        getXRPBalance(effectiveAddress, effectiveNetwork),
       ]);
 
       setMptokens(tokens);
@@ -152,11 +196,15 @@ export default function Home() {
       setTokensError('Não foi possível carregar os dados da conta na XRPL.');
       setMptokens([]);
       setXrpBalance(null);
-      setHasLoadedTokens(true); // Marca como carregado mesmo em erro para evitar loop
+      setHasLoadedTokens(true);
     } finally {
       setLoadingTokens(false);
     }
-  }, [account, loadingTokens, hasLoadedTokens]);
+  }, [effectiveAddress, effectiveNetwork, loadingTokens, hasLoadedTokens]);
+
+  useEffect(() => {
+    setHasLoadedTokens(false);
+  }, [effectiveAddress, effectiveNetwork]);
 
   const handleConnect = useCallback(async () => {
     console.log('[App] handleConnect chamado');
@@ -183,12 +231,13 @@ export default function Home() {
   }, [disconnect]);
 
   const copyAddress = useCallback(() => {
-    if (!account?.address || typeof navigator === 'undefined') {
+    const addressToCopy = effectiveAddress;
+    if (!addressToCopy || typeof navigator === 'undefined') {
       return;
     }
 
     navigator.clipboard
-      .writeText(account.address)
+      .writeText(addressToCopy)
       .then(() => {
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
@@ -196,7 +245,7 @@ export default function Home() {
       .catch((error) => {
         console.error('Erro ao copiar endereço:', error);
       });
-  }, [account?.address]);
+  }, [effectiveAddress]);
 
   const formatAddress = useCallback((address: string) => {
     if (!address) return '';
@@ -931,7 +980,37 @@ export default function Home() {
                     Visualize seus tokens MPT na XRPL
                   </p>
                 </div>
-                {isConnected && account ? (
+                {serviceWallet ? (
+                  <div className="flex flex-col items-end gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="bg-purple-100 dark:bg-purple-900/30 px-4 py-2 rounded-lg">
+                        <div className="flex items-center gap-2">
+                          <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse" />
+                          <span className="text-sm font-semibold text-purple-700 dark:text-purple-300">
+                            Carteira do protocolo
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 bg-gray-100 dark:bg-gray-700 px-4 py-2 rounded-lg">
+                      <span className="text-sm font-mono text-gray-700 dark:text-gray-300">
+                        {formatAddress(serviceWallet.address)}
+                      </span>
+                      <motion.button
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.9 }}
+                        onClick={copyAddress}
+                        className="p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
+                        aria-label="Copiar endereço"
+                      >
+                        {copied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4 text-gray-500" />}
+                      </motion.button>
+                    </div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      Rede: {serviceWallet.network.toUpperCase()} • Tipo: {serviceWallet.type}
+                    </p>
+                  </div>
+                ) : isConnected && account ? (
                   <div className="flex flex-col items-end gap-3">
                     <div className="flex items-center gap-3">
                       <div className="bg-green-100 dark:bg-green-900/30 px-4 py-2 rounded-lg">
@@ -999,7 +1078,7 @@ export default function Home() {
                 )}
               </div>
 
-              {!isInstalled && !isConnected && !isWalletLoading && (
+              {!serviceWallet && !isInstalled && !isConnected && !isWalletLoading && (
                 <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-lg">
                   <p className="text-sm text-blue-700 dark:text-blue-300">
                     A extensão Crossmark não foi detectada. Baixe em{' '}
@@ -1016,7 +1095,7 @@ export default function Home() {
                 </div>
               )}
 
-              {crossmarkError && (
+              {!serviceWallet && crossmarkError && (
                 <div className="mt-4 p-4 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-700 rounded-lg">
                   <div className="flex items-start gap-3 text-red-700 dark:text-red-300">
                     <AlertCircle className="w-5 h-5 mt-1" />
@@ -1496,6 +1575,13 @@ export default function Home() {
               >
                 <Sparkles className="w-4 h-4" />
                 Gerenciar MPTs
+              </Link>
+              <Link
+                href="/admin/wallets"
+                className="px-4 py-2 font-semibold transition-all duration-300 border-b-2 border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 flex items-center gap-2"
+              >
+                <KeyRound className="w-4 h-4" />
+                Carteiras
               </Link>
             </div>
 

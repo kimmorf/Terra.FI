@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { clawbackMPT } from '@/lib/xrpl/mpt-helpers';
+import { getPrismaClient } from '@/lib/prisma';
+import { decryptSecret } from '@/lib/utils/crypto';
 
 /**
  * POST /api/mpt/clawback
@@ -16,13 +18,43 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const {
-      issuerAddress,
-      issuerSeed,
+      issuerAddress: rawIssuerAddress,
+      issuerSeed: rawIssuerSeed,
       currency,
       holderAddress,
       amount,
-      network = 'testnet',
+      walletId,
+      network: rawNetwork = 'testnet',
     } = body;
+
+    let issuerAddress = rawIssuerAddress;
+    let issuerSeed = rawIssuerSeed;
+    let network = rawNetwork as 'testnet' | 'mainnet' | 'devnet';
+
+    if (walletId) {
+      const prisma = getPrismaClient();
+      if (!prisma) {
+        return NextResponse.json(
+          { error: 'DATABASE_URL não configurada. Configure o banco para usar carteiras de serviço.' },
+          { status: 503 },
+        );
+      }
+
+      const wallet = await prisma.serviceWallet.findUnique({
+        where: { id: walletId },
+      });
+
+      if (!wallet) {
+        return NextResponse.json(
+          { error: 'Carteira de serviço não encontrada' },
+          { status: 404 },
+        );
+      }
+
+      issuerAddress = wallet.address;
+      issuerSeed = decryptSecret(wallet.seedEncrypted);
+      network = (wallet.network as 'testnet' | 'mainnet' | 'devnet') || network;
+    }
 
     if (!issuerAddress || typeof issuerAddress !== 'string') {
       return NextResponse.json(
