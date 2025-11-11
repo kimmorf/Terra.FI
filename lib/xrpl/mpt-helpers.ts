@@ -250,7 +250,7 @@ export async function createMPT(params: CreateMPTParams): Promise<{
     }
   }
 
-  const txHash = result.result.tx_json?.hash || result.result.hash;
+  const txHash = result.result.tx_json?.hash || (result.result as any).hash;
 
   if (!mptokenIssuanceID) {
     throw new Error('Não foi possível extrair MPTokenIssuanceID da resposta. Verifique o meta da transação.');
@@ -364,7 +364,7 @@ export async function authorizeMPTHolder(params: AuthorizeMPTHolderParams): Prom
     throw new Error(`Transação falhou: ${txResult}`);
   }
 
-  const txHash = result.result.tx_json?.hash || result.result.hash;
+  const txHash = result.result.tx_json?.hash || (result.result as any).hash;
   return txHash;
 }
 
@@ -477,7 +477,7 @@ export async function sendMPT(params: SendMPTParams): Promise<string> {
     throw new Error(`Transação falhou: ${txResult}`);
   }
 
-  const txHash = result.result.tx_json?.hash || result.result.hash;
+  const txHash = result.result.tx_json?.hash || (result.result as any).hash;
   return txHash;
 }
 
