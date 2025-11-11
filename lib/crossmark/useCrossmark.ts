@@ -115,25 +115,46 @@ export function useCrossmark() {
     }));
 
     try {
-      const detected = await sdk.async.detect?.(5000);
+      console.log('[Crossmark] Iniciando conexão...');
+      
+      // Primeiro, tenta detectar a extensão
+      console.log('[Crossmark] Detectando extensão...');
+      const detected = await sdk.async.detect?.(10000);
+      console.log('[Crossmark] Detectado:', detected);
+      
       if (detected === false) {
-        throw new Error('Não foi possível detectar a extensão Crossmark.');
+        throw new Error('Não foi possível detectar a extensão Crossmark. Certifique-se de que a extensão está instalada e ativa.');
       }
 
-      await sdk.async.connect?.(5000);
-      const response = await sdk.async.signInAndWait?.();
+      // Primeiro chama connect() para abrir a extensão
+      console.log('[Crossmark] Chamando connect() para abrir a extensão...');
+      const connectResponse = await sdk.async.connect?.();
+      console.log('[Crossmark] Connect response:', connectResponse);
+      
+      // Depois chama signInAndWait para aguardar a aprovação do usuário
+      console.log('[Crossmark] Aguardando sign in do usuário...');
+      const signInResponse = await sdk.async.signInAndWait?.(30000);
+      console.log('[Crossmark] Sign in response:', signInResponse);
 
-      const account: CrossmarkAccount | null = response?.data?.user
-        ? {
-            address: response.data.user.address,
-            network: inferNetwork({ network: response.data.user.network }),
-            publicKey: response.data.user.publicKey,
-          }
-        : buildAccount();
+      // Tenta obter a conta do response ou do SDK sync
+      let account: CrossmarkAccount | null = null;
+
+      if (signInResponse?.data?.user) {
+        account = {
+          address: signInResponse.data.user.address,
+          network: inferNetwork({ network: signInResponse.data.user.network }),
+          publicKey: signInResponse.data.user.publicKey,
+        };
+      } else {
+        // Tenta obter do SDK sync
+        account = buildAccount();
+      }
 
       if (!account) {
-        throw new Error('A Crossmark não retornou informações da conta.');
+        throw new Error('A Crossmark não retornou informações da conta. Tente conectar novamente.');
       }
+
+      console.log('[Crossmark] Conta obtida:', account);
 
       if (typeof window !== 'undefined') {
         window.localStorage.setItem(STORAGE_KEY, JSON.stringify(account));
@@ -184,15 +205,63 @@ export function useCrossmark() {
 
   useEffect(() => {
     let mounted = true;
+    let checkInterval: NodeJS.Timeout | null = null;
 
-    if (mounted) {
-      refreshAccount();
-    }
+    const checkInstallation = () => {
+      if (!mounted) return;
+
+      const installed = resolveInstallation();
+      
+      if (installed) {
+        // Se está instalado, verifica se já tem conta conectada (apenas se o usuário já conectou antes)
+        const sdkAccount = buildAccount();
+        
+        if (sdkAccount) {
+          // Já tem conta conectada no SDK - atualiza o estado e localStorage
+          if (typeof window !== 'undefined') {
+            window.localStorage.setItem(STORAGE_KEY, JSON.stringify(sdkAccount));
+          }
+          setState((prev) => ({
+            ...prev,
+            isInstalled: true,
+            isConnected: true,
+            account: sdkAccount,
+            error: undefined,
+          }));
+        } else {
+          // Está instalado mas não conectado - apenas atualiza o estado de instalação
+          // Não conecta automaticamente, espera o usuário clicar
+          setState((prev) => ({
+            ...prev,
+            isInstalled: true,
+            isConnected: false,
+            account: null,
+          }));
+        }
+      } else {
+        // Não está instalado, apenas atualiza o estado
+        setState((prev) => ({
+          ...prev,
+          isInstalled: false,
+          isConnected: false,
+          account: null,
+        }));
+      }
+    };
+
+    // Verifica imediatamente
+    checkInstallation();
+
+    // Verifica periodicamente (a cada 2 segundos) para detectar quando o usuário instala
+    checkInterval = setInterval(checkInstallation, 2000);
 
     return () => {
       mounted = false;
+      if (checkInterval) {
+        clearInterval(checkInterval);
+      }
     };
-  }, [refreshAccount]);
+  }, [resolveInstallation]);
 
   return {
     ...state,

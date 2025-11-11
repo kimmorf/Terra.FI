@@ -122,9 +122,16 @@ export default function Home() {
   }, [account]);
 
   const handleConnect = useCallback(async () => {
-    const success = await connect();
-    if (success) {
-      refreshAccount();
+    console.log('[App] handleConnect chamado');
+    try {
+      console.log('[App] Chamando connect()...');
+      const success = await connect();
+      console.log('[App] Connect retornou:', success);
+      if (success) {
+        refreshAccount();
+      }
+    } catch (error) {
+      console.error('[App] Erro no handleConnect:', error);
     }
   }, [connect, refreshAccount]);
 
