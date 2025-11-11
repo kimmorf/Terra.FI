@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { getPrismaClient } from '@/lib/prisma';
 import { auth } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
@@ -7,10 +7,18 @@ export const dynamic = 'force-dynamic';
 // GET - Buscar todos os projetos (para admin ver todos, incluindo inativos)
 export async function GET(request: NextRequest) {
   try {
+    const prisma = getPrismaClient();
+    if (!prisma) {
+      return NextResponse.json(
+        { error: 'DATABASE_URL não configurada. Configuração do banco é obrigatória para listar projetos.' },
+        { status: 503 },
+      );
+    }
+
     const session = await auth.api.getSession({
       headers: request.headers,
     });
-    
+
     // Admin pode ver sem autenticação na página inicial, mas vamos manter a verificação
     // Você pode remover essa verificação se quiser que qualquer um veja os projetos no admin
     // if (!session) {
@@ -36,10 +44,18 @@ export async function GET(request: NextRequest) {
 // POST - Criar um novo projeto de investimento
 export async function POST(request: NextRequest) {
   try {
+    const prisma = getPrismaClient();
+    if (!prisma) {
+      return NextResponse.json(
+        { error: 'DATABASE_URL não configurada. Configuração do banco é obrigatória para criar projetos.' },
+        { status: 503 },
+      );
+    }
+
     const session = await auth.api.getSession({
       headers: request.headers,
     });
-    
+
     if (!session) {
       return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });
     }

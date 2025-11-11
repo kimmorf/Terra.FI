@@ -26,6 +26,7 @@ import {
   AlertCircle,
   Info,
 } from 'lucide-react';
+import Link from 'next/link';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { BackgroundParticles } from '@/components/BackgroundParticles';
 import { useSession } from '@/lib/auth-client';
@@ -37,6 +38,7 @@ import {
 import type { MPTokenMetadata } from '@/lib/crossmark/types';
 import { registerIssuance } from '@/lib/elysia-client';
 import { getAccountMPTokens, getXRPBalance } from '@/lib/xrpl/account';
+import { TOKEN_CONFIG } from '@/lib/tokens/presets';
 
 interface AdminProject {
   id: string;
@@ -51,13 +53,6 @@ interface AdminProject {
   targetAmount: number;
   status: string;
 }
-
-const TOKEN_CONFIG: Record<string, { decimals: number; transferable: boolean }> = {
-  LAND: { decimals: 2, transferable: true },
-  BUILD: { decimals: 2, transferable: true },
-  REV: { decimals: 2, transferable: true },
-  COL: { decimals: 0, transferable: false },
-};
 
 const typeIcons = {
   LAND: Mountain,
@@ -413,6 +408,22 @@ export default function Home() {
           <p className="text-lg md:text-xl text-gray-600 dark:text-gray-300">
             Plataforma de Tokenização de Terrenos na XRPL
           </p>
+          <div className="mt-6 flex flex-col sm:flex-row gap-4 justify-center items-center">
+            <Link
+              href="/tokens/create"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl font-semibold shadow-lg hover:shadow-xl transition-all duration-300"
+            >
+              <Sparkles className="w-5 h-5" />
+              Criar Tokens MPT
+            </Link>
+            <Link
+              href="/Terra_fi.md"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 border border-gray-200 dark:border-gray-700 rounded-xl font-semibold shadow hover:shadow-md transition-all duration-300"
+            >
+              <Info className="w-5 h-5" />
+              Blueprint Terra.FI
+            </Link>
+          </div>
         </motion.div>
 
         {/* Role Selection */}

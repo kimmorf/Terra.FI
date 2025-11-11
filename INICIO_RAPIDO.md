@@ -67,6 +67,17 @@ Acesse: http://localhost:3000
 
 ---
 
+## 🔐 Emissão de Tokens MPT
+
+1. Conecte a carteira Crossmark no dashboard principal (`/`).
+2. Acesse `http://localhost:3000/tokens/create` para abrir a Terra.FI Token Factory.
+3. Escolha entre LAND, BUILD, REV ou COL, ajuste metadados e finalize a emissão.
+4. Após assinar a transação, acompanhe o hash no explorer XRPL (testnet/devnet).
+
+> Os presets seguem o blueprint descrito em [`Terra_fi.md`](./Terra_fi.md) e usam metadados compatíveis com XLS-89.
+
+---
+
 ## 🌐 Deploy Online
 
 ### Vercel (Recomendado)
