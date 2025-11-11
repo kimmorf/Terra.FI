@@ -1,8 +1,9 @@
 'use client';
 
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Mountain, Hammer, DollarSign, Lock, ArrowRight, TrendingUp, AlertCircle, FileText, X, Download, Info, CheckCircle2 } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 
 interface ProjectFile {
   id: string;
@@ -316,22 +317,33 @@ export function InvestmentCard({ project, onInvest, isMocked = false }: Investme
         </div>
       </div>
 
-      {/* Modal de Detalhes - Melhorado */}
-      {showDetails && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          onClick={() => setShowDetails(false)}
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md"
-        >
+      {/* Modal de Detalhes - Flutuante e Independente */}
+      {showDetails && typeof window !== 'undefined' && createPortal(
+        <AnimatePresence>
           <motion.div
-            initial={{ opacity: 0, scale: 0.9, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.9, y: 20 }}
-            onClick={(e) => e.stopPropagation()}
-            className="bg-white dark:bg-gray-800/95 rounded-3xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col backdrop-blur-xl border border-gray-200 dark:border-gray-700"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowDetails(false)}
+            className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-lg"
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              zIndex: 9999,
+            }}
           >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white dark:bg-gray-900 rounded-3xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col backdrop-blur-xl border-2 border-gray-300 dark:border-gray-600"
+              style={{ position: 'relative', zIndex: 10000 }}
+            >
             {/* Header - Melhorado */}
             <div className={`relative bg-gradient-to-r ${colorClass} p-6`}>
               <div className="absolute inset-0 bg-black/10" />
@@ -432,11 +444,11 @@ export function InvestmentCard({ project, onInvest, isMocked = false }: Investme
                         <div className="flex items-center gap-4 flex-1 min-w-0">
                           <div className="text-3xl flex-shrink-0">{getFileIcon(file.fileType)}</div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-bold text-gray-800 dark:text-white truncate mb-1">
+                            <p className="text-sm font-bold text-gray-800 dark:text-white break-words mb-1">
                               {file.fileName}
                             </p>
                             {file.description && (
-                              <p className="text-xs text-gray-600 dark:text-gray-400 truncate mb-1">
+                              <p className="text-xs text-gray-600 dark:text-gray-400 break-words mb-1">
                                 {file.description}
                               </p>
                             )}
@@ -462,8 +474,10 @@ export function InvestmentCard({ project, onInvest, isMocked = false }: Investme
                 )}
               </div>
             </div>
+            </motion.div>
           </motion.div>
-        </motion.div>
+        </AnimatePresence>,
+        document.body
       )}
     </motion.div>
   );

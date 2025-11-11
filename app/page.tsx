@@ -1064,7 +1064,7 @@ export default function Home() {
 
               {/* Abas do Investidor - só aparecem quando wallet está conectada */}
               {isConnected && (
-                <div className="mt-6">
+                <div className="mt-12 pt-8 border-t border-gray-200 dark:border-gray-700">
                   <div className="flex gap-2 mb-8 bg-gray-100 dark:bg-gray-800/50 p-1.5 rounded-2xl border border-gray-200 dark:border-gray-700">
                       <motion.button
                         onClick={() => setInvestorTab('available-tokens')}
@@ -1163,20 +1163,14 @@ export default function Home() {
                         </p>
                       </motion.div>
                     ) : (
-                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        {investmentProjects.map((project, index) => (
-                          <motion.div
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {investmentProjects.map((project) => (
+                          <InvestmentCard
                             key={project.id}
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: index * 0.1 }}
-                          >
-                            <InvestmentCard
-                              project={project}
-                              onInvest={handleInvest}
-                              isMocked={isInvestmentMocked()}
-                            />
-                          </motion.div>
+                            project={project}
+                            onInvest={handleInvest}
+                            isMocked={isInvestmentMocked()}
+                          />
                         ))}
                       </div>
                     )}
@@ -1267,31 +1261,25 @@ export default function Home() {
                         </div>
                       </div>
                     ) : availableTokens.length > 0 ? (
-                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        {availableTokens.map((project, index) => (
-                          <motion.div
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {availableTokens.map((project) => (
+                          <InvestmentCard
                             key={project.id || `${project.currency}-${project.issuer}`}
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: index * 0.1 }}
-                          >
-                            <InvestmentCard
-                              project={{
-                                id: project.id || '',
-                                name: project.name,
-                                type: project.currency,
-                                purpose: project.purpose,
-                                example: project.example || '',
-                                minAmount: project.minAmount || 0,
-                                maxAmount: project.maxAmount || 0,
-                                targetAmount: project.targetAmount || 0,
-                                totalAmount: project.totalAmount || 0,
-                                status: 'published',
-                              }}
-                              onInvest={handleInvest}
-                              isMocked={isInvestmentMocked()}
-                            />
-                          </motion.div>
+                            project={{
+                              id: project.id || '',
+                              name: project.name,
+                              type: project.currency,
+                              purpose: project.purpose,
+                              example: project.example || '',
+                              minAmount: project.minAmount || 0,
+                              maxAmount: project.maxAmount || 0,
+                              targetAmount: project.targetAmount || 0,
+                              totalAmount: project.totalAmount || 0,
+                              status: 'published',
+                            }}
+                            onInvest={handleInvest}
+                            isMocked={isInvestmentMocked()}
+                          />
                         ))}
                       </div>
                     ) : (
