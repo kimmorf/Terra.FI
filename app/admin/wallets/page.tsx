@@ -11,6 +11,7 @@ import {
   RefreshCw,
   Plus,
   LockKeyhole,
+  LogOut,
 } from 'lucide-react';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { BackgroundParticles } from '@/components/BackgroundParticles';
@@ -167,14 +168,35 @@ export default function AdminWalletsPage() {
         // Também dispara evento storage para compatibilidade
         window.dispatchEvent(new Event('storage'));
       }
-      setSuccess('Carteira selecionada para operações nesta máquina/sessão.');
+      setSuccess('Carteira conectada para operações nesta máquina/sessão.');
     } catch (err: any) {
-      setError(err.message || 'Erro ao selecionar carteira');
+      setError(err.message || 'Erro ao conectar carteira');
+    }
+  };
+
+  const handleDisconnect = () => {
+    try {
+      if (!selectedWalletId) {
+        setSuccess('Nenhuma carteira conectada no momento.');
+        return;
+      }
+      const previousWalletId = selectedWalletId;
+      setSelectedWalletId(null);
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem(STORAGE_KEY);
+        window.dispatchEvent(
+          new CustomEvent('walletSelected', { detail: { walletId: null, previousWalletId } }),
+        );
+        window.dispatchEvent(new Event('storage'));
+      }
+      setSuccess('Carteira desconectada nesta máquina/sessão.');
+    } catch (err: any) {
+      setError(err.message || 'Erro ao desconectar carteira');
     }
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Tem certeza que deseja remover esta carteira?')) return;
+    if (!confirm('Tem certeza que deseja deletar esta carteira?')) return;
     setError(null);
     try {
       const response = await fetch(`/api/admin/wallets/${id}`, {
@@ -182,17 +204,22 @@ export default function AdminWalletsPage() {
       });
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || 'Erro ao remover carteira');
+        throw new Error(data.error || 'Erro ao deletar carteira');
       }
       if (selectedWalletId === id) {
         setSelectedWalletId(null);
         if (typeof window !== 'undefined') {
           localStorage.removeItem(STORAGE_KEY);
+          window.dispatchEvent(
+            new CustomEvent('walletSelected', { detail: { walletId: null, previousWalletId: id } }),
+          );
+          window.dispatchEvent(new Event('storage'));
         }
       }
+      setSuccess('Carteira deletada com sucesso.');
       await loadWallets();
     } catch (err: any) {
-      setError(err.message || 'Erro ao remover carteira');
+      setError(err.message || 'Erro ao deletar carteira');
     }
   };
 
@@ -397,7 +424,7 @@ export default function AdminWalletsPage() {
                                 </h3>
                                 {isSelected && (
                                   <span className="px-2 py-0.5 text-xs bg-blue-600 text-white rounded-full">
-                                    Selecionada
+                                    Logada
                                   </span>
                                 )}
                               </div>
@@ -426,24 +453,36 @@ export default function AdminWalletsPage() {
                               </div>
                             </div>
 
-                            <div className="flex items-center gap-3">
-                              <button
-                                onClick={() => handleSelect(wallet.id)}
-                                className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 ${
-                                  isSelected
-                                    ? 'bg-green-600 text-white'
-                                    : 'bg-blue-600 hover:bg-blue-700 text-white'
-                                }`}
-                              >
-                                <LockKeyhole className="w-4 h-4" />
-                                {isSelected ? 'Selecionada' : 'Selecionar'}
-                              </button>
+                            <div className="flex flex-wrap items-center gap-3">
+                              {!isSelected ? (
+                                <button
+                                  onClick={() => handleSelect(wallet.id)}
+                                  className="px-4 py-2 rounded-lg text-sm font-semibold bg-blue-600 hover:bg-blue-700 text-white transition-all flex items-center gap-2"
+                                >
+                                  <LockKeyhole className="w-4 h-4" />
+                                  Logar
+                                </button>
+                              ) : (
+                                <>
+                                  <span className="px-4 py-2 rounded-lg text-sm font-semibold bg-green-600 text-white flex items-center gap-2">
+                                    <LockKeyhole className="w-4 h-4" />
+                                    Logada
+                                  </span>
+                                  <button
+                                    onClick={handleDisconnect}
+                                    className="px-4 py-2 rounded-lg text-sm font-semibold bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-600 transition-all flex items-center gap-2"
+                                  >
+                                    <LogOut className="w-4 h-4" />
+                                    Desconectar
+                                  </button>
+                                </>
+                              )}
                               <button
                                 onClick={() => handleDelete(wallet.id)}
                                 className="px-3 py-2 rounded-lg text-sm font-semibold text-red-600 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-900/20 transition-all flex items-center gap-1"
                               >
                                 <Trash2 className="w-4 h-4" />
-                                Remover
+                                Deletar
                               </button>
                             </div>
                           </div>
@@ -458,16 +497,24 @@ export default function AdminWalletsPage() {
                 <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-2xl p-4 text-blue-700 dark:text-blue-200">
                   <h3 className="font-semibold flex items-center gap-2">
                     <ShieldCheck className="w-4 h-4" />
-                    Carteira selecionada
+                    Carteira conectada
                   </h3>
                   <p className="text-sm mt-1">
-                    Todas as operações administrativas (emissão de MPT, freeze, clawback) utilizarão a
-                    carteira <strong>{selectedWallet.label}</strong> ({selectedWallet.address}).
+                    Você está logado com a carteira <strong>{selectedWallet.label}</strong> (
+                    {selectedWallet.address}).
                   </p>
                   <p className="text-xs mt-1 text-blue-600/70 dark:text-blue-200/70">
-                    Você pode alterar a carteira a qualquer momento ou criar novas carteiras para ambientes
-                    diferentes.
+                    Para trocar, conecte outra carteira na lista acima ou desconecte-se abaixo.
                   </p>
+                  <div className="mt-3">
+                    <button
+                      onClick={handleDisconnect}
+                      className="px-4 py-2 rounded-lg text-sm font-semibold bg-white/80 text-blue-700 border border-blue-200 hover:bg-white transition-colors flex items-center gap-2 dark:bg-blue-900/40 dark:border-blue-700 dark:text-blue-100 dark:hover:bg-blue-900/60"
+                    >
+                      <LogOut className="w-4 h-4" />
+                      Desconectar
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
