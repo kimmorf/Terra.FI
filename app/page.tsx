@@ -397,9 +397,29 @@ export default function Home() {
     }
   }, [investorTab]);
 
+  // Verifica se investimento está mockado (valores hardcoded)
+  const isInvestmentMocked = useCallback(() => {
+    // Wallet de destino hardcoded (mock)
+    const MOCK_DESTINATION_WALLET = 'rN7n7otQDd6FczFgLdSqtcsAUxDkw6fzRH';
+    // Taxa de conversão hardcoded (mock)
+    const MOCK_XRP_TO_BRL = 2.5;
+    
+    // Verifica se está usando valores mockados
+    const isMockWallet = true; // Sempre mockado até adicionar campo no projeto
+    const isMockRate = true; // Sempre mockado até integrar com oráculo de preço
+    
+    return isMockWallet || isMockRate;
+  }, []);
+
   const handleInvest = useCallback(async (projectId: string, amount: number) => {
     if (!isConnected || !account) {
       alert('Você precisa conectar sua carteira para investir');
+      return;
+    }
+
+    // Verifica se está mockado
+    if (isInvestmentMocked()) {
+      alert('Investimento temporariamente desabilitado. Sistema em configuração.');
       return;
     }
 
@@ -542,7 +562,7 @@ export default function Home() {
       alert(error.message || 'Erro ao realizar investimento');
       throw error;
     }
-  }, [isConnected, account, xrpBalance, availableTokens, investmentProjects, fetchInvestmentProjects]);
+  }, [isConnected, account, xrpBalance, availableTokens, investmentProjects, fetchInvestmentProjects, isInvestmentMocked]);
 
   useEffect(() => {
     if (isConnected && account && !hasLoadedTokens) {
@@ -1067,6 +1087,7 @@ export default function Home() {
                             key={project.id}
                             project={project}
                             onInvest={handleInvest}
+                            isMocked={isInvestmentMocked()}
                           />
                         ))}
                       </div>
@@ -1154,6 +1175,7 @@ export default function Home() {
                               status: 'published',
                             }}
                             onInvest={handleInvest}
+                            isMocked={isInvestmentMocked()}
                           />
                         ))}
                       </div>

@@ -82,7 +82,20 @@ export default function DashboardPage() {
     }
   };
 
+  // Verifica se investimento está mockado (valores hardcoded)
+  const isInvestmentMocked = () => {
+    // Wallet de destino hardcoded (mock)
+    // Taxa de conversão hardcoded (mock)
+    // Sempre mockado até adicionar campo walletAddress no projeto e integrar oráculo de preço
+    return true;
+  };
+
   const handleInvest = async (projectId: string, amount: number) => {
+    // Verifica se está mockado
+    if (isInvestmentMocked()) {
+      alert('Investimento temporariamente desabilitado. Sistema em configuração.');
+      return;
+    }
     try {
       const response = await fetch('/api/investments', {
         method: 'POST',
@@ -218,6 +231,7 @@ export default function DashboardPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {projects.map((project) => (
                   <InvestmentCard
+                    isMocked={isInvestmentMocked()}
                     key={project.id}
                     project={project}
                     onInvest={handleInvest}

@@ -3,6 +3,7 @@ import { cors } from '@elysiajs/cors';
 import { swagger } from '@elysiajs/swagger';
 import { getPrismaServerClient } from '../lib/prisma-server';
 import { validateWebhook, type WebhookSecurityConfig } from '../lib/security/webhook-security';
+import type { XRPLNetwork } from '../lib/xrpl/pool';
 
 const prisma = getPrismaServerClient();
 
@@ -95,7 +96,7 @@ const app = new Elysia()
               network: body.network,
               txHash: body.txHash,
               metadata: body.metadata ?? {},
-              rawResponse: body.rawResponse ?? null,
+              rawResponse: body.rawResponse ?? undefined,
             },
           });
 
@@ -273,7 +274,7 @@ const app = new Elysia()
         const { setIssuerPermissions } = await import('../lib/security/flag-audit');
         const result = await setIssuerPermissions(
           body.issuer,
-          body.network,
+          body.network as XRPLNetwork,
           {
             canFreeze: body.canFreeze,
             canClawback: body.canClawback,

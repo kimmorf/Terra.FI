@@ -1,7 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { Mountain, Hammer, DollarSign, Lock, ArrowRight, TrendingUp } from 'lucide-react';
+import { Mountain, Hammer, DollarSign, Lock, ArrowRight, TrendingUp, AlertCircle } from 'lucide-react';
 import { useState } from 'react';
 
 interface InvestmentProject {
@@ -20,6 +20,7 @@ interface InvestmentProject {
 interface InvestmentCardProps {
   project: InvestmentProject;
   onInvest: (projectId: string, amount: number) => Promise<void>;
+  isMocked?: boolean; // Indica se o investimento está mockado (valores hardcoded)
 }
 
 const typeIcons = {
@@ -36,7 +37,7 @@ const typeColors = {
   COL: 'from-purple-400 to-purple-600 dark:from-purple-500 dark:to-purple-700',
 };
 
-export function InvestmentCard({ project, onInvest }: InvestmentCardProps) {
+export function InvestmentCard({ project, onInvest, isMocked = false }: InvestmentCardProps) {
   const [amount, setAmount] = useState(project.minAmount.toString());
   const [isInvesting, setIsInvesting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -176,17 +177,33 @@ export function InvestmentCard({ project, onInvest }: InvestmentCardProps) {
         </div>
       </div>
 
+      {isMocked && (
+        <div className="mb-3 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
+          <div className="flex items-center gap-2 text-yellow-800 dark:text-yellow-200">
+            <AlertCircle className="w-4 h-4" />
+            <p className="text-xs font-medium">
+              Investimento temporariamente desabilitado (sistema em configuração)
+            </p>
+          </div>
+        </div>
+      )}
+      
       <motion.button
-        whileHover={{ scale: 1.05 }}
-        whileTap={{ scale: 0.95 }}
+        whileHover={!isMocked ? { scale: 1.05 } : {}}
+        whileTap={!isMocked ? { scale: 0.95 } : {}}
         onClick={handleInvest}
-        disabled={isInvesting || remaining <= 0}
+        disabled={isInvesting || remaining <= 0 || isMocked}
         className="w-full px-4 py-3 bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700 text-white rounded-xl font-semibold transition-all duration-300 flex items-center justify-center gap-2 shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {isInvesting ? (
           <>
             <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
             Investindo...
+          </>
+        ) : isMocked ? (
+          <>
+            <AlertCircle className="w-5 h-5" />
+            Indisponível
           </>
         ) : remaining <= 0 ? (
           'Meta Atingida'

@@ -88,7 +88,7 @@ async function fundAccountFromFaucet(
 function generateAccount(): { address: string; secret: string; wallet: Wallet } {
   const wallet = Wallet.generate();
   return {
-    address: wallet.classicAddress,
+    address: wallet.address,
     secret: wallet.seed!,
     wallet,
   };
@@ -158,7 +158,7 @@ async function sendXRP(
   const response = await client.submitAndWait(
     {
       TransactionType: 'Payment',
-      Account: from.classicAddress,
+      Account: from.address,
       Destination: to,
       Amount: amountDrops,
     },

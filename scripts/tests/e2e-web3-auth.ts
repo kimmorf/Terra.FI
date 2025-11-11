@@ -154,7 +154,10 @@ async function submitAndMeasureValidation(
     const signed = wallet.sign(prepared);
 
     // Submeter (não aguardar validação ainda)
-    const submitResult = await client.submit(signed.tx_blob);
+    const submitResult = await client.request({
+      command: 'submit',
+      tx_blob: signed.tx_blob,
+    });
 
     if (submitResult.result.engine_result !== 'tesSUCCESS' && 
         submitResult.result.engine_result !== 'terQUEUED') {
@@ -242,9 +245,9 @@ async function runE2ETest(network: 'testnet' | 'devnet' = 'testnet') {
     const holderB = Wallet.fromSeed(config.investors[1].secret);
 
     console.log(`📋 Contas:`);
-    console.log(`   Issuer: ${issuer.classicAddress}`);
-    console.log(`   Holder A: ${holderA.classicAddress}`);
-    console.log(`   Holder B: ${holderB.classicAddress}\n`);
+    console.log(`   Issuer: ${issuer.address}`);
+    console.log(`   Holder A: ${holderA.address}`);
+    console.log(`   Holder B: ${holderB.address}\n`);
 
     const currency = 'AUTH';
     const amount = '1000000'; // 10,000.00 tokens (2 decimais)
@@ -264,7 +267,7 @@ async function runE2ETest(network: 'testnet' | 'devnet' = 'testnet') {
           // Verificar se já está configurado
           const accountInfo = await client.request({
             command: 'account_info',
-            account: issuer.classicAddress,
+            account: issuer.address,
             ledger_index: 'validated',
           });
 
@@ -274,7 +277,7 @@ async function runE2ETest(network: 'testnet' | 'devnet' = 'testnet') {
           if (!requireAuthSet) {
             const accountSetTx = {
               TransactionType: 'AccountSet',
-              Account: issuer.classicAddress,
+              Account: issuer.address,
               SetFlag: 2, // asfRequireAuth - Requer autorização para trustlines
             };
             
@@ -296,7 +299,7 @@ async function runE2ETest(network: 'testnet' | 'devnet' = 'testnet') {
         // Criar token com Transferable=true (canTransfer)
         const transaction = {
           TransactionType: 'MPTokenIssuanceCreate',
-          Account: issuer.classicAddress,
+          Account: issuer.address,
           Currency: currency,
           Amount: amount,
           Decimals: decimals,
@@ -362,9 +365,9 @@ async function runE2ETest(network: 'testnet' | 'devnet' = 'testnet') {
       try {
         const transaction = {
           TransactionType: 'MPTokenAuthorize',
-          Account: issuer.classicAddress,
+          Account: issuer.address,
           Currency: currency,
-          Holder: holderA.classicAddress,
+          Holder: holderA.address,
           Authorize: true,
         };
 
@@ -429,11 +432,11 @@ async function runE2ETest(network: 'testnet' | 'devnet' = 'testnet') {
 
         const transaction = {
           TransactionType: 'Payment',
-          Account: issuer.classicAddress,
-          Destination: holderA.classicAddress,
+          Account: issuer.address,
+          Destination: holderA.address,
           Amount: {
             currency: currency,
-            issuer: issuer.classicAddress,
+            issuer: issuer.address,
             value: tokenAmount,
           },
         };
@@ -499,11 +502,11 @@ async function runE2ETest(network: 'testnet' | 'devnet' = 'testnet') {
 
         const transaction = {
           TransactionType: 'Payment',
-          Account: issuer.classicAddress,
-          Destination: holderB.classicAddress,
+          Account: issuer.address,
+          Destination: holderB.address,
           Amount: {
             currency: currency,
-            issuer: issuer.classicAddress,
+            issuer: issuer.address,
             value: tokenAmount,
           },
         };

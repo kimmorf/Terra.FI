@@ -110,3 +110,44 @@ export async function sendMPT(params: {
 
   return response.json();
 }
+
+/**
+ * Lista MPTs emitidos por uma conta
+ */
+export async function listMPTs(params: {
+  issuer: string;
+  network?: string;
+}): Promise<{
+  issuer: string;
+  network: string;
+  count: number;
+  tokens: Array<{
+    issuanceIdHex: string;
+    txHash: string;
+    ledgerIndex: number;
+    assetScale: number;
+    maximumAmount: string;
+    transferFee: number;
+    flags: {
+      canLock: boolean;
+      requireAuth: boolean;
+      canEscrow: boolean;
+      canTrade: boolean;
+      canTransfer: boolean;
+      canClawback: boolean;
+    };
+    metadata: any;
+    issuedAt?: string;
+  }>;
+}> {
+  const response = await fetch(
+    `/api/mpt/list?issuer=${encodeURIComponent(params.issuer)}&network=${params.network || 'testnet'}`
+  );
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Erro ao listar MPTs emitidos');
+  }
+
+  return response.json();
+}

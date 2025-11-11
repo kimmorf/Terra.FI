@@ -225,22 +225,60 @@ export async function processMPTSend(
       retryCount: purchase.retryCount,
     });
 
-    // Aqui você integraria com o sistema de envio de MPT real
-    // Por enquanto, simula ou usa a função existente
-    // const mptTx = buildPaymentTransaction({...});
-    // const result = await reliableSubmitV2(mptTxBlob, network, {
-    //   purchaseId,
-    //   idempotencyKey,
-    //   maxRetries: 3,
-    // });
+    // Implementação real: usar MptService para enviar MPT
+    const { MptService } = await import('../mpt/mpt.service');
+    const mptService = new MptService(process.env.XRPL_ISSUER_SECRET, network);
 
-    // Simulação - em produção, usar envio real
-    const result = {
-      success: false,
-      txHash: null,
-      engineResult: 'tecNO_AUTH', // Simula erro de autorização
-      error: 'Holder not authorized',
+    // Buscar issuanceIdHex do metadata do purchase
+    const metadata = (purchase.metadata as any) || {};
+    const issuanceIdHex = metadata.issuanceIdHex || metadata.mptokenIssuanceID;
+
+    if (!issuanceIdHex) {
+      throw new Error('MPTokenIssuanceID não encontrado no metadata do purchase');
+    }
+
+    // Buscar endereço do comprador do metadata
+    const buyerAddress = (purchase.metadata as any)?.buyerAddress;
+    if (!buyerAddress) {
+      throw new Error('Endereço do comprador não encontrado');
+    }
+
+    let result: {
+      success: boolean;
+      txHash?: string | null;
+      engineResult?: string;
+      error?: string;
     };
+
+    try {
+      // Enviar MPT usando MptService
+      if (!purchase.mptAmount) {
+        throw new Error('mptAmount não está definido no purchase');
+      }
+
+      const sendResult = await mptService.send({
+        mptIssuanceIdHex: issuanceIdHex,
+        amount: purchase.mptAmount,
+        destination: buyerAddress,
+      }, process.env.XRPL_ISSUER_SECRET);
+
+      result = {
+        success: true,
+        txHash: sendResult.txHash || null,
+      };
+    } catch (error: any) {
+      // Extrair engineResult do erro se disponível
+      const engineResult = error.engineResult || error.result?.engine_result || 
+                          (error.message?.includes('tecNO_AUTH') ? 'tecNO_AUTH' : 
+                           error.message?.includes('tecNO_LINE') ? 'tecNO_LINE' : undefined);
+
+      result = {
+        success: false,
+        txHash: null,
+        engineResult,
+        error: error.message || 'Erro ao enviar MPT',
+      };
+    }
 
     // Atualiza purchase baseado no resultado
     if (result.success && result.txHash) {

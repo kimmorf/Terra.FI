@@ -16,6 +16,7 @@
 import { Client, Wallet, xrpToDrops, dropsToXrp } from 'xrpl';
 import * as fs from 'fs';
 import * as path from 'path';
+import { reliableSubmitV2 } from '../../lib/xrpl/reliable-submission-v2';
 
 const XRPL_ENDPOINTS = {
   testnet: 'wss://s.altnet.rippletest.net:51233',
@@ -99,21 +100,30 @@ async function submitAndWait(
   client: Client,
   wallet: Wallet,
   transaction: any,
-  description: string
+  description: string,
+  network: 'testnet' | 'devnet' = 'testnet'
 ): Promise<{ hash: string; result: any }> {
   const prepared = await client.autofill(transaction);
   const signed = wallet.sign(prepared);
-  const result = await client.submitAndWait(signed.tx_blob);
+  const submitResult = await reliableSubmitV2(signed.tx_blob, network, {
+    maxRetries: 3,
+  });
 
-  if (result.result.meta?.TransactionResult !== 'tesSUCCESS') {
+  if (!submitResult.success || !submitResult.txHash) {
     throw new Error(
-      `${description} falhou: ${result.result.meta?.TransactionResult}`
+      `${description} falhou: ${submitResult.error || submitResult.engineResult || 'Unknown error'}`
     );
   }
 
+  // Buscar detalhes da transação
+  const txResponse = await client.request({
+    command: 'tx',
+    transaction: submitResult.txHash,
+  });
+
   return {
-    hash: result.result.hash,
-    result: result.result,
+    hash: submitResult.txHash,
+    result: txResponse.result,
   };
 }
 
@@ -145,9 +155,9 @@ async function runE2ETest(network: 'testnet' | 'devnet' = 'testnet') {
     const investor2 = Wallet.fromSeed(config.investors[1].secret);
 
     console.log(`📋 Contas carregadas:`);
-    console.log(`   Issuer: ${issuer.classicAddress}`);
-    console.log(`   Investor1: ${investor1.classicAddress}`);
-    console.log(`   Investor2: ${investor2.classicAddress}\n`);
+    console.log(`   Issuer: ${issuer.address}`);
+    console.log(`   Investor1: ${investor1.address}`);
+    console.log(`   Investor2: ${investor2.address}\n`);
 
     const currency = 'LAND';
     const amount = '1000000'; // 10,000.00 tokens (2 decimais)
@@ -173,7 +183,7 @@ async function runE2ETest(network: 'testnet' | 'devnet' = 'testnet') {
           issuer,
           {
             TransactionType: 'MPTokenIssuanceCreate',
-            Account: issuer.classicAddress,
+            Account: issuer.address,
             Currency: currency,
             Amount: amount,
             Decimals: decimals,
@@ -184,7 +194,8 @@ async function runE2ETest(network: 'testnet' | 'devnet' = 'testnet') {
               },
             ],
           },
-          step
+          step,
+          network
         );
 
         const duration = Date.now() - startTime;
@@ -231,12 +242,13 @@ async function runE2ETest(network: 'testnet' | 'devnet' = 'testnet') {
           issuer,
           {
             TransactionType: 'MPTokenAuthorize',
-            Account: issuer.classicAddress,
+            Account: issuer.address,
             Currency: currency,
-            Holder: investor1.classicAddress,
+            Holder: investor1.address,
             Authorize: true,
           },
-          step
+          step,
+          network
         );
 
         const duration = Date.now() - startTime;
@@ -280,12 +292,13 @@ async function runE2ETest(network: 'testnet' | 'devnet' = 'testnet') {
           issuer,
           {
             TransactionType: 'MPTokenAuthorize',
-            Account: issuer.classicAddress,
+            Account: issuer.address,
             Currency: currency,
-            Holder: investor2.classicAddress,
+            Holder: investor2.address,
             Authorize: true,
           },
-          step
+          step,
+          network
         );
 
         const duration = Date.now() - startTime;
@@ -336,8 +349,8 @@ async function runE2ETest(network: 'testnet' | 'devnet' = 'testnet') {
           investor1,
           {
             TransactionType: 'Payment',
-            Account: investor1.classicAddress,
-            Destination: issuer.classicAddress,
+            Account: investor1.address,
+            Destination: issuer.address,
             Amount: xrpToDrops(xrpAmount),
             Memos: [
               {
@@ -357,11 +370,11 @@ async function runE2ETest(network: 'testnet' | 'devnet' = 'testnet') {
           issuer,
           {
             TransactionType: 'Payment',
-            Account: issuer.classicAddress,
-            Destination: investor1.classicAddress,
+            Account: issuer.address,
+            Destination: investor1.address,
             Amount: {
               currency: currency,
-              issuer: issuer.classicAddress,
+              issuer: issuer.address,
               value: tokenAmount,
             },
           },
@@ -413,12 +426,13 @@ async function runE2ETest(network: 'testnet' | 'devnet' = 'testnet') {
           issuer,
           {
             TransactionType: 'MPTokenFreeze',
-            Account: issuer.classicAddress,
+            Account: issuer.address,
             Currency: currency,
-            Holder: investor1.classicAddress,
+            Holder: investor1.address,
             Freeze: true,
           },
-          step
+          step,
+          network
         );
 
         const duration = Date.now() - startTime;
@@ -472,7 +486,7 @@ async function runE2ETest(network: 'testnet' | 'devnet' = 'testnet') {
           issuer,
           {
             TransactionType: 'MPTokenIssuanceCreate',
-            Account: issuer.classicAddress,
+            Account: issuer.address,
             Currency: 'COL',
             Amount: colAmount,
             Decimals: 0,
@@ -483,7 +497,8 @@ async function runE2ETest(network: 'testnet' | 'devnet' = 'testnet') {
               },
             ],
           },
-          step
+          step,
+          network
         );
 
         // Enviar COL para investor1
@@ -492,11 +507,11 @@ async function runE2ETest(network: 'testnet' | 'devnet' = 'testnet') {
           issuer,
           {
             TransactionType: 'Payment',
-            Account: issuer.classicAddress,
-            Destination: investor1.classicAddress,
+            Account: issuer.address,
+            Destination: investor1.address,
             Amount: {
               currency: 'COL',
-              issuer: issuer.classicAddress,
+              issuer: issuer.address,
               value: colAmount,
             },
           },
@@ -547,12 +562,13 @@ async function runE2ETest(network: 'testnet' | 'devnet' = 'testnet') {
           issuer,
           {
             TransactionType: 'MPTokenFreeze',
-            Account: issuer.classicAddress,
+            Account: issuer.address,
             Currency: currency,
-            Holder: investor1.classicAddress,
+            Holder: investor1.address,
             Freeze: false,
           },
-          step
+          step,
+          network
         );
 
         const duration = Date.now() - startTime;

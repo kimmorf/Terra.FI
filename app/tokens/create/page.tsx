@@ -25,6 +25,8 @@ import { TOKEN_PRESETS, TOKEN_CONFIG, type TokenPreset } from '@/lib/tokens/pres
 import { buildMPTokenIssuanceTransaction, signAndSubmitTransaction } from '@/lib/crossmark/transactions';
 import type { MPTokenMetadata } from '@/lib/crossmark/types';
 import { registerIssuance } from '@/lib/elysia-client';
+import { listMPTs } from '@/lib/mpt/api';
+import { extractIssuanceIDWithFallback } from '@/lib/crossmark/issuance-id-extractor';
 
 const iconMap: Record<string, React.ElementType> = {
     LAND: Mountain,
@@ -96,6 +98,8 @@ export default function TokenFactoryPage() {
     const [issuanceError, setIssuanceError] = useState<string | null>(null);
     const [issuanceSuccess, setIssuanceSuccess] = useState<string | null>(null);
     const [txHash, setTxHash] = useState<string | null>(null);
+    const [issuedTokens, setIssuedTokens] = useState<any[]>([]);
+    const [loadingTokens, setLoadingTokens] = useState(false);
 
     useEffect(() => {
         if (!selectedPreset) {
@@ -114,16 +118,44 @@ export default function TokenFactoryPage() {
         setTxHash(null);
     }, [selectedPreset]);
 
+    const loadIssuedTokens = useCallback(async () => {
+        if (!account?.address) return;
+
+        setLoadingTokens(true);
+        try {
+            const data = await listMPTs({
+                issuer: account.address,
+                network: account.network,
+            });
+            setIssuedTokens(data.tokens || []);
+        } catch (error) {
+            console.error('[TokenFactory] Erro ao carregar MPTs emitidos:', error);
+            setIssuedTokens([]);
+        } finally {
+            setLoadingTokens(false);
+        }
+    }, [account]);
+
     const handleConnect = useCallback(async () => {
         try {
             const success = await connect();
             if (success) {
                 refreshAccount();
+                // Carregar MPTs emitidos após conectar
+                if (account) {
+                    loadIssuedTokens();
+                }
             }
         } catch (error) {
             console.error('[TokenFactory] erro ao conectar Crossmark', error);
         }
-    }, [connect, refreshAccount]);
+    }, [connect, refreshAccount, account, loadIssuedTokens]);
+
+    useEffect(() => {
+        if (account?.address && isConnected) {
+            loadIssuedTokens();
+        }
+    }, [account?.address, isConnected, loadIssuedTokens]);
 
     const handleDisconnect = useCallback(() => {
         disconnect();
@@ -223,9 +255,16 @@ export default function TokenFactoryPage() {
                 throw new Error('Não foi possível recuperar o hash da transação.');
             }
 
+            // Extrair MPTokenIssuanceID da resposta ou buscar na XRPL
+            const issuanceIdHex = await extractIssuanceIDWithFallback(
+                response,
+                hash,
+                account.network as 'testnet' | 'mainnet' | 'devnet'
+            );
+
             setTxHash(hash);
             setIssuanceSuccess(
-                `${selectedPreset.label} emitido com sucesso. Acompanhe a transação diretamente na XRPL.`,
+                `${selectedPreset.label} emitido com sucesso. Acompanhe a transação diretamente na XRPL.${issuanceIdHex ? ` ID: ${issuanceIdHex.slice(0, 16)}...` : ''}`,
             );
 
             try {
@@ -239,13 +278,18 @@ export default function TokenFactoryPage() {
                     issuer: account.address,
                     network: account.network,
                     txHash: hash,
-                    metadata,
+                    metadata: {
+                        ...metadata,
+                        issuanceIdHex, // Incluir MPTokenIssuanceID no metadata
+                    },
                 });
             } catch (error) {
                 console.warn('[TokenFactory] Falha ao registrar emissão no Elysia', error);
             }
 
             refreshAccount();
+            // Recarregar lista de MPTs emitidos
+            await loadIssuedTokens();
         } catch (error) {
             console.error('Erro ao emitir token:', error);
             const message =
@@ -266,6 +310,7 @@ export default function TokenFactoryPage() {
         legalReference,
         externalUrl,
         refreshAccount,
+        loadIssuedTokens,
     ]);
 
     const explorerUrl = getExplorerUrl(account?.network, txHash);
@@ -621,10 +666,128 @@ export default function TokenFactoryPage() {
                     </div>
                 </motion.section>
 
+                {/* Seção de MPTs Emitidos */}
+                {isConnected && account && (
+                    <motion.section
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.5, delay: 0.3 }}
+                        className="max-w-6xl mx-auto mt-12"
+                    >
+                        <div className="bg-white dark:bg-gray-900/70 border border-gray-200 dark:border-gray-800 rounded-3xl shadow-lg p-6">
+                            <div className="flex items-center justify-between mb-6">
+                                <h3 className="text-2xl font-semibold text-gray-800 dark:text-white flex items-center gap-2">
+                                    <Layers className="w-6 h-6" /> MPTs Emitidos
+                                </h3>
+                                <button
+                                    onClick={loadIssuedTokens}
+                                    disabled={loadingTokens}
+                                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold text-sm shadow-md hover:shadow-lg transition-all duration-300 disabled:opacity-50 flex items-center gap-2"
+                                >
+                                    {loadingTokens ? (
+                                        <>
+                                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                            Carregando...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Check className="w-4 h-4" /> Atualizar
+                                        </>
+                                    )}
+                                </button>
+                            </div>
+
+                            {loadingTokens ? (
+                                <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                                    <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+                                    <p>Carregando MPTs emitidos...</p>
+                                </div>
+                            ) : issuedTokens.length > 0 ? (
+                                <div className="space-y-4">
+                                    {issuedTokens.map((token, index) => (
+                                        <div
+                                            key={`${token.issuanceIdHex}-${index}`}
+                                            className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700"
+                                        >
+                                            <div className="flex items-start justify-between mb-3">
+                                                <div className="flex-1">
+                                                    <div className="flex items-center gap-2 mb-2">
+                                                        <span className="font-mono text-xs text-gray-500 dark:text-gray-400">
+                                                            ID: {token.issuanceIdHex.slice(0, 16)}...
+                                                        </span>
+                                                        {token.metadata?.name && (
+                                                            <span className="font-semibold text-gray-800 dark:text-white">
+                                                                {token.metadata.name}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    {token.metadata?.description && (
+                                                        <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                                                            {token.metadata.description}
+                                                        </p>
+                                                    )}
+                                                    <div className="flex flex-wrap gap-4 text-xs text-gray-500 dark:text-gray-400">
+                                                        <span>
+                                                            Asset Scale: <strong>{token.assetScale}</strong>
+                                                        </span>
+                                                        <span>
+                                                            Max Amount: <strong>{token.maximumAmount}</strong>
+                                                        </span>
+                                                        {token.issuedAt && (
+                                                            <span>
+                                                                Emitido em: <strong>{new Date(token.issuedAt).toLocaleDateString('pt-BR')}</strong>
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    {token.flags && (
+                                                        <div className="flex flex-wrap gap-2 mt-2">
+                                                            {token.flags.canTransfer && (
+                                                                <span className="px-2 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded text-xs">
+                                                                    Transferível
+                                                                </span>
+                                                            )}
+                                                            {token.flags.requireAuth && (
+                                                                <span className="px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded text-xs">
+                                                                    Requer Auth
+                                                                </span>
+                                                            )}
+                                                            {token.flags.canLock && (
+                                                                <span className="px-2 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 rounded text-xs">
+                                                                    Pode Lock
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <div className="flex flex-col items-end gap-2">
+                                                    <Link
+                                                        href={`${explorerByNetwork[account.network || 'testnet']}${token.txHash}`}
+                                                        target="_blank"
+                                                        rel="noreferrer"
+                                                        className="text-blue-600 dark:text-blue-400 hover:underline text-xs flex items-center gap-1"
+                                                    >
+                                                        Ver TX <ArrowRight className="w-3 h-3" />
+                                                    </Link>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                                    <Layers className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                                    <p>Nenhum MPT emitido ainda</p>
+                                    <p className="text-xs mt-1">Emita seu primeiro token usando o formulário acima</p>
+                                </div>
+                            )}
+                        </div>
+                    </motion.section>
+                )}
+
                 <motion.section
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.5, delay: 0.3 }}
+                    transition={{ duration: 0.5, delay: 0.4 }}
                     className="max-w-5xl mx-auto mt-12"
                 >
                     <div className="bg-white dark:bg-gray-900/70 border border-gray-200 dark:border-gray-800 rounded-3xl shadow-lg p-6 flex flex-col md:flex-row gap-6 items-start md:items-center justify-between">

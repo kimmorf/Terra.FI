@@ -6,13 +6,14 @@
  * operações diárias, enquanto a cold fica offline para operações críticas.
  */
 
-import { Client, isValidXRPLAddress } from 'xrpl';
+import { Client, isValidAddress } from 'xrpl';
 import { xrplPool, type XRPLNetwork } from './pool';
 import { withXRPLRetry } from '../utils/retry';
+import { reliableSubmitV2 } from './reliable-submission-v2';
 
 // Helper para validar endereço XRPL
 function isValidXRPLAddress(address: string): boolean {
-  return isValidXRPLAddress(address);
+  return isValidAddress(address);
 }
 
 export interface RegularKeyConfig {
@@ -144,7 +145,16 @@ export async function setRegularKey(
     const signed = wallet.sign(prepared);
 
     // Submete transação
-    const submitResult = await client.submitAndWait(signed.tx_blob);
+    const submitResult = await client.request({
+      command: 'submit',
+      tx_blob: signed.tx_blob,
+    });
+    
+    // Aguarda validação
+    await client.request({
+      command: 'tx',
+      transaction: submitResult.result.tx_json.hash,
+    });
 
     if (submitResult.result.engine_result === 'tesSUCCESS') {
       return {
@@ -182,7 +192,7 @@ export async function removeRegularKey(
   try {
     const client = await xrplPool.getClient(network);
 
-    const transaction: SetRegularKey = {
+    const transaction: any = {
       TransactionType: 'SetRegularKey',
       Account: coldWallet,
       // RegularKey vazio remove a configuração
@@ -190,20 +200,22 @@ export async function removeRegularKey(
 
     const prepared = await client.autofill(transaction);
     const { Wallet } = await import('xrpl');
-    const wallet = Wallet.fromSecret(secret);
+    const wallet = Wallet.fromSeed(secret);
     const signed = wallet.sign(prepared);
 
-    const submitResult = await client.submitAndWait(signed.tx_blob);
+    const submitResult = await reliableSubmitV2(signed.tx_blob, network, {
+      maxRetries: 3,
+    });
 
-    if (submitResult.result.engine_result === 'tesSUCCESS') {
+    if (submitResult.success && submitResult.txHash) {
       return {
         success: true,
-        txHash: submitResult.result.tx_json.hash,
+        txHash: submitResult.txHash,
       };
     } else {
       return {
         success: false,
-        error: `Transação falhou: ${submitResult.result.engine_result}`,
+        error: submitResult.error || `Transação falhou: ${submitResult.engineResult}`,
       };
     }
   } catch (error) {

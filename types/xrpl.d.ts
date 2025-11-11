@@ -5,14 +5,18 @@ declare module 'xrpl' {
     disconnect(): Promise<void>;
     request<T = any>(options: Record<string, unknown>): Promise<{ result: T }>;
     autofill(tx: any): Promise<any>;
+    submitAndWait(tx: any, options?: any): Promise<any>;
     isConnected(): boolean;
   }
   
   export class Wallet {
     static fromSeed(seed: string): Wallet;
+    static generate(): Wallet;
     address: string;
+    classicAddress: string;
     publicKey: string;
     privateKey: string;
+    seed?: string;
     sign(tx: any): { tx_blob: string };
   }
   

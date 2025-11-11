@@ -100,7 +100,7 @@ async function createOffer(
   try {
     const prepared = await client.autofill({
       TransactionType: 'OfferCreate',
-      Account: wallet.classicAddress,
+      Account: wallet.address,
       TakerGets: takerGets,
       TakerPays: takerPays,
       Expiration: Math.floor(Date.now() / 1000) + 3600, // 1 hora
@@ -247,8 +247,8 @@ async function runStressTest(
     const investor = Wallet.fromSeed(config.investors[0].secret);
 
     console.log(`📋 Contas:`);
-    console.log(`   Issuer: ${issuer.classicAddress}`);
-    console.log(`   Investor: ${investor.classicAddress}\n`);
+    console.log(`   Issuer: ${issuer.address}`);
+    console.log(`   Investor: ${investor.address}\n`);
 
     // Verificar se token existe, se não, criar
     const currency = 'TEST';
@@ -257,11 +257,11 @@ async function runStressTest(
     try {
       const accountLines = await client.request({
         command: 'account_lines',
-        account: investor.classicAddress,
+        account: investor.address,
       });
 
       const hasToken = accountLines.result.lines?.some(
-        (line: any) => line.currency === currency && line.issuer === issuer.classicAddress
+        (line: any) => line.currency === currency && line.issuer === issuer.address
       );
 
       if (!hasToken) {
@@ -271,7 +271,7 @@ async function runStressTest(
         await client.submitAndWait(
           {
             TransactionType: 'MPTokenIssuanceCreate',
-            Account: issuer.classicAddress,
+            Account: issuer.address,
             Currency: currency,
             Amount: '1000000', // 10,000.00 tokens
             Decimals: 2,
@@ -284,9 +284,9 @@ async function runStressTest(
         await client.submitAndWait(
           {
             TransactionType: 'MPTokenAuthorize',
-            Account: issuer.classicAddress,
+            Account: issuer.address,
             Currency: currency,
-            Holder: investor.classicAddress,
+            Holder: investor.address,
             Authorize: true,
           },
           { wallet: issuer, autofill: true }
@@ -296,11 +296,11 @@ async function runStressTest(
         await client.submitAndWait(
           {
             TransactionType: 'Payment',
-            Account: issuer.classicAddress,
-            Destination: investor.classicAddress,
+            Account: issuer.address,
+            Destination: investor.address,
             Amount: {
               currency,
-              issuer: issuer.classicAddress,
+              issuer: issuer.address,
               value: '10000', // 100.00 tokens
             },
           },
@@ -337,7 +337,7 @@ async function runStressTest(
         investor,
         batch,
         currency,
-        issuer.classicAddress,
+        issuer.address,
         concurrency
       );
 

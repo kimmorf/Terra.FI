@@ -179,7 +179,10 @@ async function submitAndMeasure(
   try {
     const prepared = await client.autofill(transaction);
     const signed = wallet.sign(prepared);
-    const submitResult = await client.submit(signed.tx_blob);
+    const submitResult = await client.request({
+      command: 'submit',
+      tx_blob: signed.tx_blob,
+    });
 
     if (submitResult.result.engine_result !== 'tesSUCCESS' && 
         submitResult.result.engine_result !== 'terQUEUED') {
@@ -267,7 +270,7 @@ async function executePurchase(
 ): Promise<PurchaseResult> {
   const purchase: PurchaseResult = {
     purchaseId: purchaseId || `purchase-${Date.now()}`,
-    buyer: buyer.classicAddress,
+    buyer: buyer.address,
     paymentMethod,
     amount,
     tokenAmount: '0',
@@ -280,7 +283,7 @@ async function executePurchase(
 
   try {
     // STEP 1: Quote
-    const quote = generateQuote(buyer.classicAddress, amount, currency, issuerAddress);
+    const quote = generateQuote(buyer.address, amount, currency, issuerAddress);
     purchase.tokenAmount = quote.tokenAmount;
 
     purchase.steps.push({
@@ -321,7 +324,7 @@ async function executePurchase(
         buyer,
         {
           TransactionType: 'Payment',
-          Account: buyer.classicAddress,
+          Account: buyer.address,
           Destination: issuerAddress,
           Amount: xrpToDrops(amount),
           Memos: [
@@ -342,7 +345,7 @@ async function executePurchase(
         buyer,
         {
           TransactionType: 'Payment',
-          Account: buyer.classicAddress,
+          Account: buyer.address,
           Destination: issuerAddress,
           Amount: {
             currency: 'RLUSD',
@@ -394,7 +397,7 @@ async function executePurchase(
       {
         TransactionType: 'Payment',
         Account: issuerAddress,
-        Destination: buyer.classicAddress,
+        Destination: buyer.address,
         Amount: {
           currency: currency,
           issuer: issuerAddress,
@@ -528,14 +531,14 @@ async function runE2ETest(
     const investorB = Wallet.fromSeed(config.investors[1].secret);
     const investorC = Wallet.fromSeed(config.investors[2].secret);
 
-    report.config.issuer = issuer.classicAddress;
+    report.config.issuer = issuer.address;
 
     console.log(`📋 Contas:`);
-    console.log(`   Issuer: ${issuer.classicAddress}`);
-    console.log(`   Treasury: ${treasury.classicAddress}`);
-    console.log(`   Investor A: ${investorA.classicAddress}`);
-    console.log(`   Investor B: ${investorB.classicAddress}`);
-    console.log(`   Investor C: ${investorC.classicAddress}\n`);
+    console.log(`   Issuer: ${issuer.address}`);
+    console.log(`   Treasury: ${treasury.address}`);
+    console.log(`   Investor A: ${investorA.address}`);
+    console.log(`   Investor B: ${investorB.address}`);
+    console.log(`   Investor C: ${investorC.address}\n`);
 
     // ============================================
     // PREPARAÇÃO: Emitir MPT com RequireAuth + CanTransfer
@@ -546,7 +549,7 @@ async function runE2ETest(
     try {
       const accountInfo = await client.request({
         command: 'account_info',
-        account: issuer.classicAddress,
+        account: issuer.address,
       });
 
       const flags = accountInfo.result.account_data.Flags || 0;
@@ -558,7 +561,7 @@ async function runE2ETest(
           issuer,
           {
             TransactionType: 'AccountSet',
-            Account: issuer.classicAddress,
+            Account: issuer.address,
             SetFlag: 2, // asfRequireAuth
           },
           'AccountSet: RequireAuth'
@@ -582,7 +585,7 @@ async function runE2ETest(
         issuer,
         {
           TransactionType: 'MPTokenIssuanceCreate',
-          Account: issuer.classicAddress,
+          Account: issuer.address,
           Currency: currency,
           Amount: amount,
           Decimals: decimals,
@@ -605,14 +608,14 @@ async function runE2ETest(
         issuer,
         {
           TransactionType: 'MPTokenAuthorize',
-          Account: issuer.classicAddress,
+          Account: issuer.address,
           Currency: currency,
-          Holder: investorA.classicAddress,
+          Holder: investorA.address,
           Authorize: true,
         },
         'Authorize A'
       );
-      report.preparation.authorizations.push(investorA.classicAddress);
+      report.preparation.authorizations.push(investorA.address);
       console.log(`   ✅ Investor A autorizado (TX: ${authA.hash})`);
 
       const authC = await submitAndMeasure(
@@ -620,14 +623,14 @@ async function runE2ETest(
         issuer,
         {
           TransactionType: 'MPTokenAuthorize',
-          Account: issuer.classicAddress,
+          Account: issuer.address,
           Currency: currency,
-          Holder: investorC.classicAddress,
+          Holder: investorC.address,
           Authorize: true,
         },
         'Authorize C'
       );
-      report.preparation.authorizations.push(investorC.classicAddress);
+      report.preparation.authorizations.push(investorC.address);
       console.log(`   ✅ Investor C autorizado (TX: ${authC.hash})`);
 
       console.log(`   ⚠️  Investor B NÃO autorizado (como esperado)\n`);
@@ -650,7 +653,7 @@ async function runE2ETest(
       issuer,
       investorA,
       currency,
-      issuer.classicAddress,
+      issuer.address,
       '10',
       'XRP',
       true
@@ -667,7 +670,7 @@ async function runE2ETest(
         issuer,
         investorA,
         currency,
-        issuer.classicAddress,
+        issuer.address,
         '10',
         'RLUSD',
         true
@@ -685,7 +688,7 @@ async function runE2ETest(
       issuer,
       investorB,
       currency,
-      issuer.classicAddress,
+      issuer.address,
       '10',
       'XRP',
       false
@@ -701,7 +704,7 @@ async function runE2ETest(
       issuer,
       investorA,
       currency,
-      issuer.classicAddress,
+      issuer.address,
       '10',
       'XRP',
       true,
@@ -713,13 +716,13 @@ async function runE2ETest(
     // 5. Quote expirado
     console.log(`5️⃣  Quote expirado...`);
     // Criar quote expirado
-    const expiredQuote = generateQuote(investorA.classicAddress, '10', currency, issuer.classicAddress, -10);
+    const expiredQuote = generateQuote(investorA.address, '10', currency, issuer.address, -10);
     const expiredPurchase = await executePurchase(
       client,
       issuer,
       investorA,
       currency,
-      issuer.classicAddress,
+      issuer.address,
       '10',
       'XRP',
       true
@@ -737,7 +740,7 @@ async function runE2ETest(
       issuer,
       investorA,
       currency,
-      issuer.classicAddress,
+      issuer.address,
       '10',
       'XRP',
       true,
@@ -749,7 +752,7 @@ async function runE2ETest(
       issuer,
       investorA,
       currency,
-      issuer.classicAddress,
+      issuer.address,
       '10',
       'XRP',
       true,
@@ -769,9 +772,9 @@ async function runE2ETest(
       issuer,
       {
         TransactionType: 'MPTokenAuthorize',
-        Account: issuer.classicAddress,
+        Account: issuer.address,
         Currency: currency,
-        Holder: investorC.classicAddress,
+        Holder: investorC.address,
         Authorize: false,
       },
       'Deauthorize C'
@@ -783,7 +786,7 @@ async function runE2ETest(
       issuer,
       investorC,
       currency,
-      issuer.classicAddress,
+      issuer.address,
       '10',
       'XRP',
       false // não autorizado
@@ -803,7 +806,7 @@ async function runE2ETest(
         issuer,
         investorA,
         currency,
-        issuer.classicAddress,
+        issuer.address,
         '5',
         'XRP',
         true,

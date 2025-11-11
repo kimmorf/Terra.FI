@@ -6,7 +6,7 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['tests/**/*.test.ts'],
-    timeout: 300000, // 5 minutos
+    testTimeout: 300000, // 5 minutos
     hookTimeout: 300000,
     teardownTimeout: 30000,
     coverage: {

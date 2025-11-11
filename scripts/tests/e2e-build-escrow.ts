@@ -14,6 +14,7 @@
 import { Client, Wallet, xrpToDrops } from 'xrpl';
 import * as fs from 'fs';
 import * as path from 'path';
+import { reliableSubmitV2 } from '../../lib/xrpl/reliable-submission-v2';
 
 const XRPL_ENDPOINTS = {
   testnet: 'wss://s.altnet.rippletest.net:51233',
@@ -78,21 +79,30 @@ async function submitAndWait(
   client: Client,
   wallet: Wallet,
   transaction: any,
-  description: string
+  description: string,
+  network: 'testnet' | 'devnet' = 'testnet'
 ): Promise<{ hash: string; result: any }> {
   const prepared = await client.autofill(transaction);
   const signed = wallet.sign(prepared);
-  const result = await client.submitAndWait(signed.tx_blob);
+  const submitResult = await reliableSubmitV2(signed.tx_blob, network, {
+    maxRetries: 3,
+  });
 
-  if (result.result.meta?.TransactionResult !== 'tesSUCCESS') {
+  if (!submitResult.success || !submitResult.txHash) {
     throw new Error(
-      `${description} falhou: ${result.result.meta?.TransactionResult}`
+      `${description} falhou: ${submitResult.error || submitResult.engineResult || 'Unknown error'}`
     );
   }
 
+  // Buscar detalhes da transação
+  const txResponse = await client.request({
+    command: 'tx',
+    transaction: submitResult.txHash,
+  });
+
   return {
-    hash: result.result.hash,
-    result: result.result,
+    hash: submitResult.txHash,
+    result: txResponse.result,
   };
 }
 
@@ -146,8 +156,8 @@ async function runE2ETest(network: 'testnet' | 'devnet' = 'testnet') {
     const investor = Wallet.fromSeed(config.investors[0].secret);
 
     console.log(`📋 Contas carregadas:`);
-    console.log(`   Issuer: ${issuer.classicAddress}`);
-    console.log(`   Investor: ${investor.classicAddress}\n`);
+    console.log(`   Issuer: ${issuer.address}`);
+    console.log(`   Investor: ${investor.address}\n`);
 
     const currency = 'BUILD';
     const amount = '500000'; // 5,000.00 tokens (2 decimais)
@@ -178,14 +188,15 @@ async function runE2ETest(network: 'testnet' | 'devnet' = 'testnet') {
           issuer,
           {
             TransactionType: 'MPTokenIssuanceCreate',
-            Account: issuer.classicAddress,
+            Account: issuer.address,
             Currency: currency,
             Amount: amount,
             Decimals: decimals,
             Transferable: true,
             Memos: [{ Memo: metadata }],
           },
-          step
+          step,
+          network
         );
 
         const duration = Date.now() - startTime;
@@ -232,12 +243,13 @@ async function runE2ETest(network: 'testnet' | 'devnet' = 'testnet') {
           issuer,
           {
             TransactionType: 'MPTokenAuthorize',
-            Account: issuer.classicAddress,
+            Account: issuer.address,
             Currency: currency,
-            Holder: investor.classicAddress,
+            Holder: investor.address,
             Authorize: true,
           },
-          step
+          step,
+          network
         );
 
         const duration = Date.now() - startTime;
@@ -286,25 +298,26 @@ async function runE2ETest(network: 'testnet' | 'devnet' = 'testnet') {
 
         // Criar escrow com tokens BUILD
         const escrowAmount = '100000'; // 1000.00 tokens
-        const escrowSequence = await getAccountSequence(client, issuer.classicAddress);
+        const escrowSequence = await getAccountSequence(client, issuer.address);
 
         const tx = await submitAndWait(
           client,
           issuer,
           {
             TransactionType: 'EscrowCreate',
-            Account: issuer.classicAddress,
-            Destination: investor.classicAddress,
+            Account: issuer.address,
+            Destination: investor.address,
             Amount: {
               currency: currency,
-              issuer: issuer.classicAddress,
+              issuer: issuer.address,
               value: escrowAmount,
             },
             Condition: condition,
             CancelAfter: fulfillmentTime + 60, // Pode cancelar após 60s
             FinishAfter: fulfillmentTime, // Pode finalizar após 30s
           },
-          step
+          step,
+          network
         );
 
         // Extrair escrow ID do resultado
@@ -314,7 +327,7 @@ async function runE2ETest(network: 'testnet' | 'devnet' = 'testnet') {
 
         if (!escrowId) {
           // Tentar obter do hash ou sequence
-          escrowId = `${issuer.classicAddress}:${escrowSequence}`;
+          escrowId = `${issuer.address}:${escrowSequence}`;
         }
 
         const duration = Date.now() - startTime;
@@ -369,12 +382,12 @@ async function runE2ETest(network: 'testnet' | 'devnet' = 'testnet') {
         // Obter owner do escrow
         const escrowResponse = await client.request({
           command: 'account_objects',
-          account: issuer.classicAddress,
+          account: issuer.address,
           type: 'escrow',
         });
 
         const escrow = escrowResponse.result.account_objects.find(
-          (obj: any) => obj.Destination === investor.classicAddress
+          (obj: any) => obj.Destination === investor.address
         );
 
         if (!escrow) {
@@ -386,13 +399,14 @@ async function runE2ETest(network: 'testnet' | 'devnet' = 'testnet') {
           issuer,
           {
             TransactionType: 'EscrowFinish',
-            Account: issuer.classicAddress,
-            Owner: issuer.classicAddress,
+            Account: issuer.address,
+            Owner: issuer.address,
             OfferSequence: escrow.Sequence,
             Condition: createEscrowCondition(Math.floor(Date.now() / 1000) - 1),
             Fulfillment: 'A0028000', // Fulfillment simples para teste
           },
-          step
+          step,
+          network
         );
 
         const duration = Date.now() - startTime;
@@ -444,26 +458,27 @@ async function runE2ETest(network: 'testnet' | 'devnet' = 'testnet') {
           issuer,
           {
             TransactionType: 'EscrowCreate',
-            Account: issuer.classicAddress,
-            Destination: investor.classicAddress,
+            Account: issuer.address,
+            Destination: investor.address,
             Amount: {
               currency: currency,
-              issuer: issuer.classicAddress,
+              issuer: issuer.address,
               value: escrowAmount,
             },
             CancelAfter: cancelAfter,
           },
-          step
+          step,
+          network
         );
 
         const escrowResponse = await client.request({
           command: 'account_objects',
-          account: issuer.classicAddress,
+          account: issuer.address,
           type: 'escrow',
         });
 
         const escrow = escrowResponse.result.account_objects.find(
-          (obj: any) => obj.Destination === investor.classicAddress && obj.CancelAfter
+          (obj: any) => obj.Destination === investor.address && obj.CancelAfter
         );
 
         cancelEscrowId = escrow?.Sequence?.toString();
@@ -518,7 +533,7 @@ async function runE2ETest(network: 'testnet' | 'devnet' = 'testnet') {
 
         const escrowResponse = await client.request({
           command: 'account_objects',
-          account: issuer.classicAddress,
+          account: issuer.address,
           type: 'escrow',
         });
 
@@ -535,11 +550,12 @@ async function runE2ETest(network: 'testnet' | 'devnet' = 'testnet') {
           issuer,
           {
             TransactionType: 'EscrowCancel',
-            Account: issuer.classicAddress,
-            Owner: issuer.classicAddress,
+            Account: issuer.address,
+            Owner: issuer.address,
             OfferSequence: escrow.Sequence,
           },
-          step
+          step,
+          network
         );
 
         const duration = Date.now() - startTime;

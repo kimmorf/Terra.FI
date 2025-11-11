@@ -183,3 +183,135 @@ export async function getAccountTransactions(params: {
 
     return result.transactions ?? [];
 }
+
+/**
+ * Lista todos os MPTs emitidos por uma conta
+ * Usa account_objects para buscar objetos MPTokenIssuance
+ */
+export async function getIssuedMPTokens(params: {
+    issuer: string;
+    network?: string;
+}) {
+    const { issuer, network = 'testnet' } = params;
+
+    if (!isValidXRPLAddress(issuer)) {
+        throw new Error('Endereço XRPL inválido');
+    }
+
+    const cacheKey = `issued_mpt:${network}:${issuer}`;
+    const cached = cache.get(cacheKey);
+    if (cached) {
+        return cached;
+    }
+
+    const result = await withXRPLRetry(async () => {
+        const client = await xrplPool.getClient(network as XRPLNetwork);
+        
+        // Buscar objetos MPTokenIssuance emitidos por esta conta
+        // Nota: account_objects não suporta filtro por tipo para MPTokenIssuance diretamente
+        // Vamos buscar todos os objetos e filtrar
+        const response = await client.request({
+            command: 'account_objects',
+            account: issuer,
+            ledger_index: 'validated',
+            limit: 400, // Limite máximo
+        });
+
+        const allObjects = response.result.account_objects ?? [];
+        
+        // Filtrar apenas objetos do tipo MPTokenIssuance
+        const mptObjects = allObjects.filter((obj: any) => 
+            obj.LedgerEntryType === 'MPTokenIssuance'
+        );
+        
+        // Para cada objeto, buscar detalhes completos via account_tx para obter metadados
+        const mptIssuances = await Promise.all(
+            mptObjects.map(async (obj: any) => {
+                try {
+                    // Buscar transação original para obter metadados
+                    const txResponse = await client.request({
+                        command: 'tx',
+                        transaction: obj.PreviousTxnID,
+                        binary: false,
+                    });
+
+                    const tx = txResponse.result;
+                    const txJson = tx.Transaction || tx;
+                    const meta = tx.meta || tx.MetaData;
+
+                    // Extrair MPTokenIssuanceID do meta
+                    let issuanceIdHex: string | undefined;
+                    if (meta) {
+                        // Tentar extrair do meta diretamente
+                        issuanceIdHex = (meta as any)?.MPTokenIssuanceID;
+                        
+                        // Se não encontrou, buscar em AffectedNodes
+                        if (!issuanceIdHex && (meta as any)?.AffectedNodes) {
+                            for (const node of (meta as any).AffectedNodes || []) {
+                                if (node.CreatedNode?.LedgerEntryType === 'MPTokenIssuance') {
+                                    issuanceIdHex = node.CreatedNode?.NewFields?.MPTokenIssuanceID;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    // Extrair metadados do MPTokenMetadata
+                    let metadata: any = null;
+                    if (txJson.MPTokenMetadata) {
+                        try {
+                            const metadataHex = txJson.MPTokenMetadata;
+                            const metadataBuffer = Buffer.from(metadataHex, 'hex');
+                            metadata = JSON.parse(metadataBuffer.toString('utf-8'));
+                        } catch (e) {
+                            console.warn('[getIssuedMPTokens] Erro ao parsear metadados:', e);
+                        }
+                    }
+
+                    // Extrair flags
+                    const flags = txJson.Flags || 0;
+                    const flagsObj = {
+                        canLock: (flags & 0x00000002) !== 0,
+                        requireAuth: (flags & 0x00000004) !== 0,
+                        canEscrow: (flags & 0x00000008) !== 0,
+                        canTrade: (flags & 0x00000010) !== 0,
+                        canTransfer: (flags & 0x00000020) !== 0,
+                        canClawback: (flags & 0x00000040) !== 0,
+                    };
+
+                    return {
+                        issuanceIdHex: issuanceIdHex || obj.index,
+                        txHash: obj.PreviousTxnID,
+                        ledgerIndex: obj.LedgerIndex,
+                        assetScale: txJson.AssetScale ?? 0,
+                        maximumAmount: txJson.MaximumAmount ?? '0',
+                        transferFee: txJson.TransferFee ?? 0,
+                        flags: flagsObj,
+                        metadata,
+                        issuedAt: tx.date ? new Date((tx.date + 946684800) * 1000).toISOString() : undefined,
+                    };
+                } catch (error) {
+                    console.warn(`[getIssuedMPTokens] Erro ao processar objeto ${obj.index}:`, error);
+                    // Retornar dados básicos mesmo se falhar ao buscar detalhes
+                    return {
+                        issuanceIdHex: obj.index,
+                        txHash: obj.PreviousTxnID,
+                        ledgerIndex: obj.LedgerIndex,
+                        assetScale: 0,
+                        maximumAmount: '0',
+                        transferFee: 0,
+                        flags: {},
+                        metadata: null,
+                    };
+                }
+            })
+        );
+
+        return mptIssuances;
+    }, { maxAttempts: 3 });
+
+    // Cachear por 30 segundos
+    cache.set(cacheKey, result, 30000);
+
+    return result;
+}
