@@ -21,7 +21,7 @@ import { useCrossmarkContext } from '@/lib/crossmark/CrossmarkProvider';
 import { trustSetToken, sendMPToken, authorizeMPToken } from '@/lib/crossmark/transactions';
 import { registerAction } from '@/lib/elysia-client';
 import { STABLECOINS, findStablecoin } from '@/lib/tokens/stablecoins';
-import { TOKEN_PRESETS } from '@/lib/tokens/presets';
+import { TOKEN_PRESETS, type TokenPreset } from '@/lib/tokens/presets';
 import { hasTrustLine, getAccountBalance } from '@/lib/xrpl/mpt';
 
 function formatAddress(address: string) {
@@ -63,10 +63,12 @@ export default function TradeTokensPage() {
     );
 
     const extractHash = (response: any) =>
-        response?.data?.hash ??
-        response?.data?.result?.hash ??
-        response?.data?.tx_json?.hash ??
+        response?.hash ??
         response?.result?.hash ??
+        response?.result?.tx_json?.hash ??
+        response?.tx_json?.hash ??
+        response?.response?.hash ??
+        response?.response?.result?.hash ??
         null;
 
     useEffect(() => {
@@ -499,7 +501,7 @@ export default function TradeTokensPage() {
                             </p>
                             <select
                                 value={purchaseProject}
-                                onChange={(event) => setPurchaseProject(event.target.value)}
+                                onChange={(event) => setPurchaseProject(event.target.value as TokenPreset['id'])}
                                 className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
                             >
                                 {TOKEN_PRESETS.map((preset) => (

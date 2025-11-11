@@ -320,10 +320,12 @@ export default function ManageTokensPage() {
             });
 
             const hash =
-                response?.data?.hash ??
-                response?.data?.result?.hash ??
-                response?.data?.tx_json?.hash ??
-                response?.result?.hash ??
+                (response as any)?.hash ??
+                (response as any)?.result?.hash ??
+                (response as any)?.result?.tx_json?.hash ??
+                (response as any)?.tx_json?.hash ??
+                (response as any)?.response?.hash ??
+                (response as any)?.response?.result?.hash ??
                 null;
 
             await registerAction({
@@ -400,10 +402,12 @@ export default function ManageTokensPage() {
             });
 
             const hash =
-                response?.data?.hash ??
-                response?.data?.result?.hash ??
-                response?.data?.tx_json?.hash ??
-                response?.result?.hash ??
+                (response as any)?.hash ??
+                (response as any)?.result?.hash ??
+                (response as any)?.result?.tx_json?.hash ??
+                (response as any)?.tx_json?.hash ??
+                (response as any)?.response?.hash ??
+                (response as any)?.response?.result?.hash ??
                 null;
 
             await registerAction({
@@ -459,10 +463,12 @@ export default function ManageTokensPage() {
             });
 
             const hash =
-                response?.data?.hash ??
-                response?.data?.result?.hash ??
-                response?.data?.tx_json?.hash ??
-                response?.result?.hash ??
+                (response as any)?.hash ??
+                (response as any)?.result?.hash ??
+                (response as any)?.result?.tx_json?.hash ??
+                (response as any)?.tx_json?.hash ??
+                (response as any)?.response?.hash ??
+                (response as any)?.response?.result?.hash ??
                 null;
 
             await registerAction({
@@ -517,10 +523,12 @@ export default function ManageTokensPage() {
             });
 
             const hash =
-                response?.data?.hash ??
-                response?.data?.result?.hash ??
-                response?.data?.tx_json?.hash ??
-                response?.result?.hash ??
+                (response as any)?.hash ??
+                (response as any)?.result?.hash ??
+                (response as any)?.result?.tx_json?.hash ??
+                (response as any)?.tx_json?.hash ??
+                (response as any)?.response?.hash ??
+                (response as any)?.response?.result?.hash ??
                 null;
 
             await registerAction({
