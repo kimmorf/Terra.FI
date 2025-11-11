@@ -48,10 +48,6 @@ ELYSIA_PORT=3001
 
 # Next.js
 NEXT_PUBLIC_APP_URL="http://localhost:3000"
-
-# Optional: GitHub OAuth (if using social login)
-GITHUB_CLIENT_ID=""
-GITHUB_CLIENT_SECRET=""
 ```
 
 **Important:** Generate a secure random string for `BETTER_AUTH_SECRET`. You can use:
@@ -81,6 +77,52 @@ The application will be available at:
 - Next.js: http://localhost:3000
 - Elysia API: http://localhost:3001
 
+## Deployment on Vercel
+
+### Prerequisites
+- Vercel account
+- PostgreSQL database (Neon, Supabase, etc.)
+
+### Steps
+
+1. **Push your code to GitHub/GitLab/Bitbucket**
+
+2. **Import your project to Vercel:**
+   - Go to [Vercel Dashboard](https://vercel.com/dashboard)
+   - Click "Add New Project"
+   - Import your repository
+
+3. **Configure Environment Variables:**
+   In Vercel project settings, add these environment variables:
+   - `DATABASE_URL` - Your PostgreSQL connection string
+   - `BETTER_AUTH_SECRET` - Your secret key (generate a secure random string)
+   - `BETTER_AUTH_URL` - Your production URL (e.g., `https://your-app.vercel.app`)
+   - `NEXT_PUBLIC_APP_URL` - Your production URL
+
+4. **Deploy:**
+   - Vercel will automatically detect Next.js
+   - The build process will:
+     - Run `postinstall` script (generates Prisma Client)
+     - Run `prisma generate` during build
+     - Build your Next.js application
+
+5. **Run Database Migrations:**
+   After first deployment, run migrations on your production database:
+   ```bash
+   npx prisma migrate deploy
+   ```
+   Or use Vercel CLI:
+   ```bash
+   vercel env pull
+   npx prisma migrate deploy
+   ```
+
+### Important Notes for Vercel:
+- Prisma Client is automatically generated during build via `postinstall` script
+- Make sure `DATABASE_URL` is set in Vercel environment variables
+- The `prisma` package is in `dependencies` (not `devDependencies`) for Vercel builds
+- Database migrations should be run manually after deployment
+
 ## Project Structure
 
 ```
@@ -100,10 +142,11 @@ The application will be available at:
 ## Features
 
 - ✅ User authentication (email/password)
-- ✅ Social authentication (GitHub - configurable)
 - ✅ Elysia API server
 - ✅ TypeScript support
 - ✅ Modern UI with Tailwind CSS
+- ✅ Dark mode support
+- ✅ Responsive design
 
 ## Development
 
@@ -115,4 +158,3 @@ The application will be available at:
 ## License
 
 MIT
-
