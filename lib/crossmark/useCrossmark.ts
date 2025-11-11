@@ -14,12 +14,39 @@ const INITIAL_STATE: CrossmarkState = {
   error: undefined,
 };
 
-function inferNetwork(network?: { network?: string }): CrossmarkNetwork {
-  if (!network?.network) return 'testnet';
+function inferNetwork(
+  network?:
+    | CrossmarkNetwork
+    | { network?: string | null }
+    | { type?: string | null }
+    | { label?: string | null }
+    | string
+    | null,
+): CrossmarkNetwork {
+  if (!network) return 'testnet';
 
-  const normalized = network.network.toLowerCase();
+  const extract = (value: unknown): string | undefined => {
+    if (typeof value === 'string') return value;
+    if (!value || typeof value !== 'object') return undefined;
 
-  if (normalized.includes('main')) return 'mainnet';
+    const candidate =
+      'network' in value && typeof value.network === 'string'
+        ? value.network
+        : 'type' in value && typeof value.type === 'string'
+          ? value.type
+          : 'label' in value && typeof value.label === 'string'
+            ? value.label
+            : undefined;
+
+    return candidate ?? undefined;
+  };
+
+  const raw = extract(network);
+  if (!raw) return 'testnet';
+
+  const normalized = raw.toLowerCase();
+
+  if (normalized.includes('main') || normalized.includes('live')) return 'mainnet';
   if (normalized.includes('dev')) return 'devnet';
 
   return 'testnet';
@@ -116,34 +143,40 @@ export function useCrossmark() {
 
     try {
       console.log('[Crossmark] Iniciando conexão...');
-      
+
       // Primeiro, tenta detectar a extensão
       console.log('[Crossmark] Detectando extensão...');
       const detected = await sdk.async.detect?.(10000);
       console.log('[Crossmark] Detectado:', detected);
-      
-      if (detected === false) {
+
+      if (!detected) {
         throw new Error('Não foi possível detectar a extensão Crossmark. Certifique-se de que a extensão está instalada e ativa.');
       }
 
-      // Primeiro chama connect() para abrir a extensão
+      // Primeiro chama connect() para abrir a extensão e aguardar
       console.log('[Crossmark] Chamando connect() para abrir a extensão...');
-      const connectResponse = await sdk.async.connect?.();
+      const connectResponse = await sdk.async.connect?.(10000);
       console.log('[Crossmark] Connect response:', connectResponse);
-      
+
+      if (!connectResponse) {
+        throw new Error('A Crossmark não respondeu ao pedido de conexão.');
+      }
+
       // Depois chama signInAndWait para aguardar a aprovação do usuário
       console.log('[Crossmark] Aguardando sign in do usuário...');
-      const signInResponse = await sdk.async.signInAndWait?.(30000);
+      const signInResponse = await sdk.async.signInAndWait?.();
       console.log('[Crossmark] Sign in response:', signInResponse);
 
       // Tenta obter a conta do response ou do SDK sync
       let account: CrossmarkAccount | null = null;
 
-      if (signInResponse?.data?.user) {
+      const responseData = signInResponse?.response?.data;
+
+      if (responseData) {
         account = {
-          address: signInResponse.data.user.address,
-          network: inferNetwork({ network: signInResponse.data.user.network }),
-          publicKey: signInResponse.data.user.publicKey,
+          address: responseData.address,
+          network: inferNetwork(responseData.network),
+          publicKey: responseData.publicKey,
         };
       } else {
         // Tenta obter do SDK sync
@@ -211,11 +244,11 @@ export function useCrossmark() {
       if (!mounted) return;
 
       const installed = resolveInstallation();
-      
+
       if (installed) {
         // Se está instalado, verifica se já tem conta conectada (apenas se o usuário já conectou antes)
         const sdkAccount = buildAccount();
-        
+
         if (sdkAccount) {
           // Já tem conta conectada no SDK - atualiza o estado e localStorage
           if (typeof window !== 'undefined') {
