@@ -91,6 +91,22 @@ export function useCrossmark() {
 
   const refreshAccount = useCallback(() => {
     const installed = resolveInstallation();
+    
+    // Verifica se houve desconexão explícita
+    const hasStoredAccount = typeof window !== 'undefined' && 
+      window.localStorage.getItem(STORAGE_KEY) !== null;
+
+    // Se não há conta armazenada, não tenta reconectar
+    if (!hasStoredAccount) {
+      setState((prev) => ({
+        ...prev,
+        isInstalled: installed,
+        isConnected: false,
+        account: null,
+      }));
+      return;
+    }
+
     const sdkAccount = installed ? buildAccount() : null;
 
     let account = sdkAccount;
@@ -235,13 +251,27 @@ export function useCrossmark() {
   }, [resolveInstallation]);
 
   const disconnect = useCallback(async () => {
-    // Faz logout do Better Auth
+    // Faz logout do Better Auth apenas se houver sessão ativa
     try {
-      const { signOut } = await import('@/lib/auth-client');
-      await signOut();
-      console.log('[Crossmark] Logout do Better Auth realizado');
-    } catch (authError) {
-      console.warn('[Crossmark] Erro ao fazer logout do Better Auth:', authError);
+      // Verifica se há cookie de sessão antes de tentar fazer logout
+      const hasSessionCookie = typeof document !== 'undefined' && 
+        document.cookie.includes('better-auth.session_token');
+      
+      if (hasSessionCookie) {
+        const { signOut } = await import('@/lib/auth-client');
+        await signOut();
+        console.log('[Crossmark] Logout do Better Auth realizado');
+      } else {
+        console.log('[Crossmark] Nenhuma sessão ativa para fazer logout');
+      }
+    } catch (authError: any) {
+      // Erro 400 geralmente significa que não há sessão ativa, o que é OK
+      const status = authError?.status || authError?.response?.status;
+      if (status === 400) {
+        console.log('[Crossmark] Nenhuma sessão ativa para fazer logout (esperado)');
+      } else {
+        console.warn('[Crossmark] Erro ao fazer logout do Better Auth:', authError);
+      }
       // Continua mesmo se houver erro ao fazer logout
     }
 
@@ -269,30 +299,74 @@ export function useCrossmark() {
       const installed = resolveInstallation();
 
       if (installed) {
-        // Se está instalado, verifica se já tem conta conectada (apenas se o usuário já conectou antes)
+        // Verifica se há conta armazenada no localStorage
+        const storedAccountStr = typeof window !== 'undefined' ? 
+          window.localStorage.getItem(STORAGE_KEY) : null;
+        const hasStoredAccount = storedAccountStr !== null;
+
+        // Se está instalado, verifica se já tem conta conectada no SDK
         const sdkAccount = buildAccount();
 
-        if (sdkAccount) {
-          // Já tem conta conectada no SDK - atualiza o estado e localStorage
-          if (typeof window !== 'undefined') {
-            window.localStorage.setItem(STORAGE_KEY, JSON.stringify(sdkAccount));
+        // Se há conta no localStorage, tenta restaurar
+        if (hasStoredAccount) {
+          let accountToUse: CrossmarkAccount | null = null;
+
+          // Prioriza conta do SDK se disponível, senão usa a do localStorage
+          if (sdkAccount) {
+            accountToUse = sdkAccount;
+            // Atualiza o localStorage com a conta do SDK (pode ter mudado)
+            if (typeof window !== 'undefined') {
+              window.localStorage.setItem(STORAGE_KEY, JSON.stringify(sdkAccount));
+            }
+          } else if (storedAccountStr) {
+            // Usa a conta do localStorage se o SDK ainda não estiver pronto
+            try {
+              accountToUse = JSON.parse(storedAccountStr) as CrossmarkAccount;
+            } catch {
+              // Se o JSON estiver corrompido, remove
+              if (typeof window !== 'undefined') {
+                window.localStorage.removeItem(STORAGE_KEY);
+              }
+            }
           }
-          setState((prev) => ({
-            ...prev,
-            isInstalled: true,
-            isConnected: true,
-            account: sdkAccount,
-            error: undefined,
-          }));
+
+          // Atualiza o estado com a conta encontrada
+          if (accountToUse) {
+            setState((prev) => ({
+              ...prev,
+              isInstalled: true,
+              isConnected: true,
+              account: accountToUse,
+              error: undefined,
+            }));
+          } else {
+            // Há localStorage mas não conseguiu obter conta válida
+            setState((prev) => ({
+              ...prev,
+              isInstalled: true,
+              isConnected: false,
+              account: null,
+            }));
+          }
         } else {
-          // Está instalado mas não conectado - apenas atualiza o estado de instalação
-          // Não conecta automaticamente, espera o usuário clicar
-          setState((prev) => ({
-            ...prev,
-            isInstalled: true,
-            isConnected: false,
-            account: null,
-          }));
+          // Não há conta no localStorage - usuário desconectou ou nunca conectou
+          if (sdkAccount) {
+            // SDK tem conta mas não há localStorage - não reconecta automaticamente
+            setState((prev) => ({
+              ...prev,
+              isInstalled: true,
+              isConnected: false,
+              account: null,
+            }));
+          } else {
+            // Não há conta nem no SDK nem no localStorage
+            setState((prev) => ({
+              ...prev,
+              isInstalled: true,
+              isConnected: false,
+              account: null,
+            }));
+          }
         }
       } else {
         // Não está instalado, apenas atualiza o estado
