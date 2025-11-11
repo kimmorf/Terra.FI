@@ -18,7 +18,24 @@ interface IssuanceRecord {
   rawResponse?: unknown;
 }
 
+interface ActionRecord {
+  id: string;
+  type: 'authorize' | 'payment' | 'freeze' | 'clawback';
+  token: {
+    currency: string;
+    issuer: string;
+  };
+  actor: string;
+  target?: string;
+  amount?: string;
+  network: string;
+  txHash: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
 const issuances: IssuanceRecord[] = [];
+const actions: ActionRecord[] = [];
 
 const app = new Elysia()
   .use(cors())
@@ -86,6 +103,56 @@ const app = new Elysia()
           }),
         },
       ),
+      .get('/actions', () => ({
+        actions,
+      }))
+  .post(
+    '/actions',
+    ({ body }) => {
+      const record: ActionRecord = {
+        id: crypto.randomUUID(),
+        type: body.type,
+        token: {
+          currency: body.token.currency,
+          issuer: body.token.issuer,
+        },
+        actor: body.actor,
+        target: body.target,
+        amount: body.amount,
+        network: body.network,
+        txHash: body.txHash,
+        metadata: body.metadata ?? {},
+        createdAt: new Date().toISOString(),
+      };
+
+      actions.push(record);
+
+      return {
+        message: 'Ação registrada com sucesso',
+        action: record,
+      };
+    },
+    {
+      body: t.Object({
+        type: t.Union([
+          t.Literal('authorize'),
+          t.Literal('payment'),
+          t.Literal('freeze'),
+          t.Literal('clawback'),
+        ]),
+        token: t.Object({
+          currency: t.String(),
+          issuer: t.String(),
+        }),
+        actor: t.String(),
+        target: t.Optional(t.String()),
+        amount: t.Optional(t.String()),
+        network: t.String(),
+        txHash: t.String(),
+        metadata: t.Optional(t.Record(t.String(), t.Unknown())),
+      }),
+    },
+  ),
   )
   .listen(process.env.ELYSIA_PORT || 3001);
 
