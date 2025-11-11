@@ -1,15 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { auth } from '@/lib/auth';
-import { cookies } from 'next/headers';
+
+export const dynamic = 'force-dynamic';
 
 // GET - Buscar todos os projetos (para admin ver todos, incluindo inativos)
 export async function GET(request: NextRequest) {
   try {
-    const cookieStore = await cookies();
     const session = await auth.api.getSession({
       headers: request.headers,
-      cookies: cookieStore,
     });
     
     // Admin pode ver sem autenticação na página inicial, mas vamos manter a verificação
@@ -37,10 +36,8 @@ export async function GET(request: NextRequest) {
 // POST - Criar um novo projeto de investimento
 export async function POST(request: NextRequest) {
   try {
-    const cookieStore = await cookies();
     const session = await auth.api.getSession({
       headers: request.headers,
-      cookies: cookieStore,
     });
     
     if (!session) {

@@ -12,7 +12,9 @@ export function getCrossmarkSDK(): CrossmarkSDKInstance | null {
   }
 
   if (!sdkInstance) {
-    sdkInstance = new CrossmarkSDK({ project: 'Terra.FI' });
+    // O SDK do Crossmark pode não precisar do parâmetro project ou pode ter tipos específicos
+    // Tentando sem parâmetros primeiro
+    sdkInstance = new CrossmarkSDK();
   }
 
   return sdkInstance;

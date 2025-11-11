@@ -1,15 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { auth } from '@/lib/auth';
-import { cookies } from 'next/headers';
+
+export const dynamic = 'force-dynamic';
 
 // GET - Buscar investimentos do usuário logado
 export async function GET(request: NextRequest) {
   try {
-    const cookieStore = await cookies();
     const session = await auth.api.getSession({
       headers: request.headers,
-      cookies: cookieStore,
     });
     
     if (!session) {

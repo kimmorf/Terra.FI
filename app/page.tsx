@@ -34,9 +34,9 @@ import {
   buildMPTokenIssuanceTransaction,
   signAndSubmitTransaction,
 } from '@/lib/crossmark/transactions';
+import type { MPTokenMetadata } from '@/lib/crossmark/types';
 import { registerIssuance } from '@/lib/elysia-client';
 import { getAccountMPTokens, getXRPBalance } from '@/lib/xrpl/account';
-import { MPTokenMetadata } from '@/lib/crossmark/types';
 
 interface AdminProject {
   id: string;
@@ -281,11 +281,12 @@ export default function Home() {
 
       const baseUnits = baseUnitsNumber.toString();
 
-      const metadata = {
+      const metadata: MPTokenMetadata = {
         name: project.name,
-        type: project.type,
-        purpose: project.purpose,
         description: project.description ?? undefined,
+        purpose: project.purpose,
+        // Propriedades adicionais via index signature
+        type: project.type,
         example: project.example ?? undefined,
         minAmount: project.minAmount,
         maxAmount: project.maxAmount ?? undefined,
@@ -310,12 +311,16 @@ export default function Home() {
 
         const response = await signAndSubmitTransaction(transaction);
 
+        // O response do Crossmark SDK pode ter diferentes estruturas
+        // Tentamos várias possibilidades para encontrar o hash
         const txHash =
-          response?.data?.hash ??
-          response?.data?.result?.hash ??
-          response?.data?.result?.tx_json?.hash ??
-          response?.data?.tx_json?.hash ??
-          response?.result?.hash;
+          (response as any)?.data?.hash ??
+          (response as any)?.data?.result?.hash ??
+          (response as any)?.data?.result?.tx_json?.hash ??
+          (response as any)?.data?.tx_json?.hash ??
+          (response as any)?.result?.hash ??
+          (response as any)?.hash ??
+          (response as any)?.tx_json?.hash;
 
         if (!txHash) {
           throw new Error('Não foi possível identificar o hash da transação emitida.');

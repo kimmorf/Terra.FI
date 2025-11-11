@@ -1,15 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { auth } from '@/lib/auth';
-import { cookies } from 'next/headers';
+
+export const dynamic = 'force-dynamic';
 
 // GET - Buscar todos os projetos de investimento disponíveis
 export async function GET(request: NextRequest) {
   try {
-    const cookieStore = await cookies();
     const session = await auth.api.getSession({
       headers: request.headers,
-      cookies: cookieStore,
     });
     
     if (!session) {
@@ -43,10 +42,8 @@ export async function GET(request: NextRequest) {
 // POST - Criar um novo investimento
 export async function POST(request: NextRequest) {
   try {
-    const cookieStore = await cookies();
     const session = await auth.api.getSession({
       headers: request.headers,
-      cookies: cookieStore,
     });
     
     if (!session) {
