@@ -15,7 +15,7 @@ interface RegisterIssuancePayload {
 }
 
 interface RegisterActionPayload {
-    type: 'authorize' | 'payment' | 'freeze' | 'clawback';
+    type: 'authorize' | 'payment' | 'freeze' | 'clawback' | 'payout';
     token: {
         currency: string;
         issuer: string;

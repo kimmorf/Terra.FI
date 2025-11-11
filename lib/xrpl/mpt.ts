@@ -66,6 +66,11 @@ export async function getTokenHolders(params: {
     );
 }
 
+export function calculateTotalSupply(lines: any[]): number {
+    if (!Array.isArray(lines)) return 0;
+    return lines.reduce((acc, line) => acc + Number(line.balance ?? 0), 0);
+}
+
 export async function getAccountBalance(params: {
     account: string;
     currency: string;

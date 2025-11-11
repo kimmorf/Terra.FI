@@ -1,0 +1,19 @@
+# Funcionalidades Terra.FI
+
+## Implementadas
+- **Emissão de MPT (LAND / BUILD / REV / COL)** via Crossmark com metadados XLS-89.
+- **Gestão avançada** (`/tokens/manage`): autorizar, enviar, congelar e clawback; visão de carteira XRPL e histórico.
+- **Trading Desk** (`/tokens/trade`): trustline automática com stablecoins de teste, compra/venda manual com registro no Elysia.
+- **Distribuição de Receitas** (`/revenue`): cálculo de rateio REV-MPT e pagamentos holder a holder.
+- **Logs Elysia**: emissões, pagamentos, freeze/clawback, trades e payouts.
+- **Documentação rápida** (`INICIO_RAPIDO.md`) atualizada para os novos fluxos.
+
+## Em andamento / Próximas
+- Automatizar pagamentos REV (batch com tracking de ciclos).
+- Fluxo completo de crédito (penhor COL, liberação RLUSD, juros e liquidação automática).
+- Integração XRPL DEX (ordens de compra/venda e book de ofertas).
+- Alertas de governança e export CSV para compliance.
+
+## Observações
+- Cada nova feature deve encerrar com `npm run build` para garantir deploy limpo.
+- Ajustar emissores/issuers conforme o ambiente (Testnet/Devnet/Mainnet).

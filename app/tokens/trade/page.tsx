@@ -64,15 +64,6 @@ export default function TradeTokensPage() {
         TOKEN_PRESETS.find((token) => token.id === purchaseProject)?.issuerAddress ?? '',
     );
 
-    const extractHash = (response: any) =>
-        response?.hash ??
-        response?.result?.hash ??
-        response?.result?.tx_json?.hash ??
-        response?.tx_json?.hash ??
-        response?.response?.hash ??
-        response?.response?.result?.hash ??
-        null;
-
     useEffect(() => {
         let cancelled = false;
         async function loadStatus() {

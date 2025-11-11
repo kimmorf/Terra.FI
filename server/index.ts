@@ -20,7 +20,7 @@ interface IssuanceRecord {
 
 interface ActionRecord {
   id: string;
-  type: 'authorize' | 'payment' | 'freeze' | 'clawback';
+  type: 'authorize' | 'payment' | 'freeze' | 'clawback' | 'payout';
   token: {
     currency: string;
     issuer: string;
@@ -139,6 +139,7 @@ const app = new Elysia()
               t.Literal('payment'),
               t.Literal('freeze'),
               t.Literal('clawback'),
+              t.Literal('payout'),
             ]),
             token: t.Object({
               currency: t.String(),
