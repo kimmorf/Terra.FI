@@ -325,11 +325,55 @@ export default function TokenFactoryPage() {
                 console.warn('[TokenFactory] Falha ao registrar emissão no Elysia', error);
             }
 
-            // Fazer upload dos arquivos se houver um projeto associado
-            // Por enquanto, apenas limpar os arquivos selecionados
-            // TODO: Implementar upload de arquivos quando houver projeto associado
+            // Criar projeto automaticamente e fazer upload dos arquivos
             if (selectedFiles.length > 0) {
-                console.log('[TokenFactory] Arquivos selecionados serão processados quando houver projeto associado');
+                try {
+                    // Criar projeto no banco de dados
+                    const projectResponse = await fetch('/api/admin/projects', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            name: tokenName.trim(),
+                            type: selectedPreset.id,
+                            description: tokenDescription.trim() || null,
+                            purpose: tokenPurpose.trim() || selectedPreset.metadata.purpose || 'Tokenização de ativo',
+                            example: selectedPreset.metadata.example || null,
+                            minAmount: 0,
+                            maxAmount: null,
+                            targetAmount: parseFloat(supply.replace(/,/g, '')) || 0,
+                        }),
+                    });
+
+                    if (!projectResponse.ok) {
+                        throw new Error('Falha ao criar projeto');
+                    }
+
+                    const project = await projectResponse.json();
+
+                    // Fazer upload de cada arquivo
+                    for (const file of selectedFiles) {
+                        const formData = new FormData();
+                        formData.append('file', file);
+                        formData.append('projectId', project.id);
+                        formData.append('description', fileDescriptions[file.name] || '');
+
+                        const uploadResponse = await fetch('/api/admin/projects/files', {
+                            method: 'POST',
+                            body: formData,
+                        });
+
+                        if (!uploadResponse.ok) {
+                            console.warn(`[TokenFactory] Falha ao fazer upload do arquivo ${file.name}`);
+                        }
+                    }
+
+                    console.log(`[TokenFactory] ${selectedFiles.length} arquivo(s) enviado(s) para o projeto ${project.id}`);
+                } catch (error) {
+                    console.error('[TokenFactory] Erro ao criar projeto ou fazer upload de arquivos:', error);
+                    // Não falha a emissão do token se o upload de arquivos falhar
+                }
             }
 
             refreshAccount();
