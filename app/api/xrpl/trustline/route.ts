@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Wallet } from 'xrpl';
 import { xrplPool, type XRPLNetwork } from '@/lib/xrpl/pool';
 import { ReliableSubmission } from '@/lib/xrpl/reliable-submission';
+import { getPrismaClient } from '@/lib/prisma';
+import { decryptSecret } from '@/lib/utils/crypto';
 
 /**
  * API Route para criar trustline usando XRPL diretamente
@@ -14,34 +16,64 @@ import { ReliableSubmission } from '@/lib/xrpl/reliable-submission';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { account, currency, issuer, limit = '1000000000', network = 'testnet', seed } = body;
+    const {
+      account: rawAccount,
+      currency,
+      issuer,
+      limit = '1000000000',
+      network: rawNetwork = 'testnet',
+      seed: rawSeed,
+      walletId,
+    } = body;
+
+    const prisma = getPrismaClient();
+
+    let account = rawAccount as string | undefined;
+    let seed = rawSeed as string | undefined;
+    let network = rawNetwork as XRPLNetwork;
+
+    if (walletId) {
+      if (!prisma) {
+        return NextResponse.json(
+          { error: 'DATABASE_URL não configurada. Configure o banco para criar trustlines.' },
+          { status: 503 },
+        );
+      }
+      const wallet = await prisma.serviceWallet.findUnique({ where: { id: walletId } });
+      if (!wallet) {
+        return NextResponse.json({ error: 'Carteira não encontrada' }, { status: 404 });
+      }
+      account = wallet.address;
+      seed = decryptSecret(wallet.seedEncrypted);
+      network = wallet.network as XRPLNetwork;
+    }
 
     // Validações
     if (!account || typeof account !== 'string') {
       return NextResponse.json(
         { error: 'Account é obrigatório e deve ser uma string' },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
     if (!currency || typeof currency !== 'string') {
       return NextResponse.json(
         { error: 'Currency é obrigatório e deve ser uma string' },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
     if (!issuer || typeof issuer !== 'string') {
       return NextResponse.json(
         { error: 'Issuer é obrigatório e deve ser uma string' },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
     if (!seed || typeof seed !== 'string') {
       return NextResponse.json(
-        { error: 'Seed é obrigatório para criar trustline via API. Use outra carteira (xumm.app, xrptoolkit.com) se não quiser expor sua seed.' },
-        { status: 400 }
+        { error: 'Seed é obrigatório para criar trustline via API.' },
+        { status: 400 },
       );
     }
 
@@ -49,14 +81,14 @@ export async function POST(request: NextRequest) {
     if (!account.startsWith('r') || account.length < 25) {
       return NextResponse.json(
         { error: 'Account deve ser um endereço XRPL válido (começa com "r")' },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
     if (!issuer.startsWith('r') || issuer.length < 25) {
       return NextResponse.json(
         { error: 'Issuer deve ser um endereço XRPL válido (começa com "r")' },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -67,27 +99,27 @@ export async function POST(request: NextRequest) {
       if (wallet.classicAddress !== account && wallet.address !== account) {
         return NextResponse.json(
           { error: 'A seed fornecida não corresponde à conta especificada' },
-          { status: 400 }
+          { status: 400 },
         );
       }
     } catch (error: any) {
       return NextResponse.json(
         { error: `Seed inválida: ${error.message}` },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
     // Validar network
     const validNetworks: XRPLNetwork[] = ['testnet', 'mainnet', 'devnet'];
-    if (!validNetworks.includes(network as XRPLNetwork)) {
+    if (!validNetworks.includes(network)) {
       return NextResponse.json(
         { error: `Network inválido. Use: ${validNetworks.join(', ')}` },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
     // Criar transação TrustSet
-    const client = await xrplPool.getClient(network as XRPLNetwork);
+    const client = await xrplPool.getClient(network);
 
     const trustSet = {
       TransactionType: 'TrustSet',
@@ -106,7 +138,7 @@ export async function POST(request: NextRequest) {
     const signed = wallet.sign(prepared);
 
     // Submeter e aguardar validação
-    const rs = new ReliableSubmission(network as XRPLNetwork);
+    const rs = new ReliableSubmission(network);
     const result = await rs.submitAndWait(signed.tx_blob);
 
     // Verificar resultado
@@ -117,7 +149,7 @@ export async function POST(request: NextRequest) {
           error: `Transação falhou: ${transactionResult}`,
           engineResult: transactionResult,
         },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -135,7 +167,7 @@ export async function POST(request: NextRequest) {
         error: error.message || 'Erro ao criar trustline',
         details: process.env.NODE_ENV === 'development' ? error.stack : undefined,
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

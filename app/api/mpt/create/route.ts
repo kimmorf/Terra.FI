@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createMPT } from '@/lib/xrpl/mpt-helpers';
+import { getPrismaClient } from '@/lib/prisma';
+import { decryptSecret } from '@/lib/utils/crypto';
 
 /**
  * API Route para criar um MPT (Multi-Purpose Token)
@@ -22,8 +24,8 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const {
-      issuerAddress,
-      issuerSeed,
+      issuerAddress: rawIssuerAddress,
+      issuerSeed: rawIssuerSeed,
       assetScale = 0,
       maximumAmount = '0',
       transferFee = 0,
@@ -31,8 +33,38 @@ export async function POST(request: NextRequest) {
       metadataOverrides,
       tokenType,
       flags,
-      network = 'testnet'
+      walletId,
+      network: rawNetwork = 'testnet'
     } = body;
+
+    let issuerAddress = rawIssuerAddress;
+    let issuerSeed = rawIssuerSeed;
+    let network = rawNetwork as 'testnet' | 'mainnet' | 'devnet';
+
+    if (walletId) {
+      const prisma = getPrismaClient();
+      if (!prisma) {
+        return NextResponse.json(
+          { error: 'DATABASE_URL não configurada. Configure o banco para usar carteiras de serviço.' },
+          { status: 503 },
+        );
+      }
+
+      const wallet = await prisma.serviceWallet.findUnique({
+        where: { id: walletId },
+      });
+
+      if (!wallet) {
+        return NextResponse.json(
+          { error: 'Carteira de serviço não encontrada' },
+          { status: 404 },
+        );
+      }
+
+      issuerAddress = wallet.address;
+      issuerSeed = decryptSecret(wallet.seedEncrypted);
+      network = (wallet.network as 'testnet' | 'mainnet' | 'devnet') || network;
+    }
 
     // Validações básicas
     if (!issuerAddress || typeof issuerAddress !== 'string') {
