@@ -1,46 +1,477 @@
-import Link from 'next/link';
+'use client';
+
+import { useState } from 'react';
+import { motion } from 'framer-motion';
+import { 
+  Wallet, 
+  Shield, 
+  Download, 
+  MousePointerClick, 
+  CheckCircle2,
+  Sparkles,
+  Building2,
+  TrendingUp,
+  Coins,
+  Zap,
+  Mountain,
+  Hammer,
+  DollarSign,
+  Lock,
+  ArrowRight
+} from 'lucide-react';
+import { ThemeToggle } from '@/components/ThemeToggle';
+import { BackgroundParticles } from '@/components/BackgroundParticles';
 
 export default function Home() {
+  const [selectedRole, setSelectedRole] = useState<'investidor' | 'administrador'>('investidor');
+  const [isConnecting, setIsConnecting] = useState(false);
+
+  const handleConnect = () => {
+    setIsConnecting(true);
+    // Simular conexão
+    setTimeout(() => {
+      setIsConnecting(false);
+    }, 2000);
+  };
+
+  const steps = [
+    {
+      icon: Download,
+      text: 'Instale a extensão Crossmark no seu navegador',
+      color: 'text-blue-500 dark:text-blue-400'
+    },
+    {
+      icon: MousePointerClick,
+      text: 'Clique em "Conectar Crossmark" acima',
+      color: 'text-green-500 dark:text-green-400'
+    },
+    {
+      icon: CheckCircle2,
+      text: 'Aprove a conexão na extensão',
+      color: 'text-purple-500 dark:text-purple-400'
+    },
+    {
+      icon: Sparkles,
+      text: 'Visualize seus tokens MPT automaticamente',
+      color: 'text-yellow-500 dark:text-yellow-400'
+    }
+  ];
+
   return (
-    <main className="min-h-screen flex flex-col items-center justify-center p-8">
-      <div className="text-center space-y-6">
-        <h1 className="text-4xl font-bold">Welcome to Terra.FI</h1>
-        <p className="text-lg text-gray-600">
-          Built with Next.js, Elysia, and Better Auth
-        </p>
-        <div className="flex gap-4 justify-center mt-8">
-          <Link
-            href="/auth/signin"
-            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+    <main className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-100 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 transition-colors duration-300 relative overflow-hidden">
+      <BackgroundParticles />
+      <ThemeToggle />
+      
+      <div className="container mx-auto px-4 py-8 md:py-12">
+        {/* Header */}
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5 }}
+          className="text-center mb-12"
+        >
+          <div className="flex items-center justify-center gap-3 mb-4">
+            <Building2 className="w-10 h-10 text-blue-600 dark:text-blue-400" />
+            <h1 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 dark:from-blue-400 dark:to-purple-400 bg-clip-text text-transparent">
+              TerraFi.MPT
+            </h1>
+          </div>
+          <p className="text-lg md:text-xl text-gray-600 dark:text-gray-300">
+            Plataforma de Tokenização de Terrenos na XRPL
+          </p>
+        </motion.div>
+
+        {/* Role Selection */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.2 }}
+          className="flex justify-center gap-4 mb-8"
+        >
+          <button
+            onClick={() => setSelectedRole('investidor')}
+            className={`px-6 py-3 rounded-xl font-semibold transition-all duration-300 transform hover:scale-105 ${
+              selectedRole === 'investidor'
+                ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/50 dark:bg-blue-500 dark:shadow-blue-400/50'
+                : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 shadow-md hover:shadow-lg'
+            }`}
           >
-            Sign In
-          </Link>
-          <Link
-            href="/auth/signup"
-            className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition"
+            <div className="flex items-center gap-2">
+              <TrendingUp className="w-5 h-5" />
+              Investidor
+            </div>
+          </button>
+          <button
+            onClick={() => setSelectedRole('administrador')}
+            className={`px-6 py-3 rounded-xl font-semibold transition-all duration-300 transform hover:scale-105 ${
+              selectedRole === 'administrador'
+                ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/50 dark:bg-blue-500 dark:shadow-blue-400/50'
+                : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 shadow-md hover:shadow-lg'
+            }`}
           >
-            Sign Up
-          </Link>
-          <Link
-            href="/dashboard"
-            className="px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition"
+            <div className="flex items-center gap-2">
+              <Shield className="w-5 h-5" />
+              Administrador
+            </div>
+          </button>
+        </motion.div>
+
+        {/* Investor Panel */}
+        {selectedRole === 'investidor' && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.4 }}
+            className="max-w-4xl mx-auto"
           >
-            Dashboard
-          </Link>
-        </div>
-        <div className="mt-8 text-sm text-gray-500">
-          <p>Elysia API running on port 3001</p>
-          <a
-            href="http://localhost:3001"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-600 hover:text-blue-500 underline"
+            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-8 md:p-12 mb-8 border border-gray-200 dark:border-gray-700">
+              <div className="flex flex-col md:flex-row items-center justify-between gap-6">
+                <div className="flex-1">
+                  <h2 className="text-2xl md:text-3xl font-bold text-gray-800 dark:text-white mb-2">
+                    Painel do Investidor
+                  </h2>
+                  <p className="text-gray-600 dark:text-gray-300 text-lg">
+                    Visualize seus tokens MPT na XRPL
+                  </p>
+                </div>
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={handleConnect}
+                  disabled={isConnecting}
+                  className="px-8 py-4 bg-gradient-to-r from-blue-600 to-purple-600 dark:from-blue-500 dark:to-purple-500 text-white rounded-xl font-semibold text-lg shadow-lg hover:shadow-xl transition-all duration-300 flex items-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isConnecting ? (
+                    <>
+                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Conectando...
+                    </>
+                  ) : (
+                    <>
+                      <Wallet className="w-6 h-6" />
+                      Conectar Crossmark
+                    </>
+                  )}
+                </motion.button>
+              </div>
+
+              {/* Animated Wallet Icon */}
+              <div className="mt-8 flex justify-center">
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: 0.5, type: 'spring', stiffness: 100 }}
+                  className="w-64 h-64 relative flex items-center justify-center"
+                >
+                  <div className="absolute inset-0 bg-gradient-to-r from-blue-400/20 to-purple-400/20 rounded-full blur-2xl animate-pulse" />
+                  <motion.div
+                    animate={{
+                      rotate: [0, 10, -10, 10, -10, 0],
+                      scale: [1, 1.1, 1],
+                    }}
+                    transition={{
+                      duration: 2,
+                      repeat: Infinity,
+                      ease: 'easeInOut',
+                    }}
+                    className="relative z-10"
+                  >
+                    <Wallet className="w-32 h-32 text-blue-600 dark:text-blue-400" />
+                  </motion.div>
+                  <motion.div
+                    animate={{
+                      rotate: 360,
+                    }}
+                    transition={{
+                      duration: 20,
+                      repeat: Infinity,
+                      ease: 'linear',
+                    }}
+                    className="absolute inset-0 flex items-center justify-center"
+                  >
+                    <Coins className="w-16 h-16 text-yellow-500/30 dark:text-yellow-400/30 absolute -top-4 -right-4" />
+                    <Zap className="w-12 h-12 text-purple-500/30 dark:text-purple-400/30 absolute -bottom-4 -left-4" />
+                  </motion.div>
+                </motion.div>
+              </div>
+            </div>
+
+            {/* Getting Started Section */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.3 }}
+              className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-8 md:p-12 border border-gray-200 dark:border-gray-700"
+            >
+              <h3 className="text-2xl md:text-3xl font-bold text-gray-800 dark:text-white mb-8 text-center">
+                Como começar?
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {steps.map((step, index) => {
+                  const Icon = step.icon;
+                  return (
+                    <motion.div
+                      key={index}
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ duration: 0.4, delay: 0.4 + index * 0.1 }}
+                      className="flex items-start gap-4 p-4 rounded-xl bg-gray-50 dark:bg-gray-700/50 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors duration-300"
+                    >
+                      <div className={`p-3 rounded-lg bg-white dark:bg-gray-800 shadow-md ${step.color}`}>
+                        <Icon className="w-6 h-6" />
+                      </div>
+                      <div className="flex-1">
+                        <span className="text-sm font-semibold text-gray-500 dark:text-gray-400 mb-1 block">
+                          Passo {index + 1}
+                        </span>
+                        <p className="text-gray-700 dark:text-gray-300 font-medium">
+                          {step.text}
+                        </p>
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {/* Administrator Panel */}
+        {selectedRole === 'administrador' && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.4 }}
+            className="max-w-6xl mx-auto"
           >
-            View API Documentation
-          </a>
-        </div>
+            {/* Header Section */}
+            <motion.div
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5 }}
+              className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-8 md:p-12 mb-8 border border-gray-200 dark:border-gray-700"
+            >
+              <div className="flex flex-col md:flex-row items-center justify-between gap-6">
+                <div className="flex-1">
+                  <h2 className="text-2xl md:text-3xl font-bold text-gray-800 dark:text-white mb-2">
+                    Painel Administrativo
+                  </h2>
+                  <p className="text-gray-600 dark:text-gray-300 text-lg">
+                    Emita Multi-Purpose Tokens (MPTs) na XRPL
+                  </p>
+                </div>
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  className="px-8 py-4 bg-gradient-to-r from-blue-600 to-purple-600 dark:from-blue-500 dark:to-purple-500 text-white rounded-xl font-semibold text-lg shadow-lg hover:shadow-xl transition-all duration-300 flex items-center gap-3"
+                >
+                  <Wallet className="w-6 h-6" />
+                  Conectar Crossmark
+                </motion.button>
+              </div>
+            </motion.div>
+
+            {/* MPT Cards Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* LAND-MPT Card */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: 0.1 }}
+                whileHover={{ scale: 1.02, y: -5 }}
+                className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-6 border border-gray-200 dark:border-gray-700 hover:shadow-2xl transition-all duration-300"
+              >
+                <div className="flex items-start gap-4 mb-4">
+                  <div className="p-3 bg-gradient-to-br from-green-400 to-green-600 dark:from-green-500 dark:to-green-700 rounded-xl">
+                    <Mountain className="w-8 h-8 text-white" />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-1">
+                      LAND-MPT
+                    </h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                      Fractionalized land parcel
+                    </p>
+                  </div>
+                </div>
+                <div className="space-y-3 mb-6">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-1">
+                      Propósito:
+                    </p>
+                    <p className="text-gray-700 dark:text-gray-200">
+                      Tokenização de terrenos
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-1">
+                      Exemplo:
+                    </p>
+                    <p className="text-gray-700 dark:text-gray-200">
+                      1 token = 1 m²
+                    </p>
+                  </div>
+                </div>
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  className="w-full px-4 py-3 bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700 text-white rounded-xl font-semibold transition-all duration-300 flex items-center justify-center gap-2 shadow-md hover:shadow-lg"
+                >
+                  Emitir LAND-MPT
+                  <ArrowRight className="w-5 h-5" />
+                </motion.button>
+              </motion.div>
+
+              {/* BUILD-MPT Card */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: 0.2 }}
+                whileHover={{ scale: 1.02, y: -5 }}
+                className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-6 border border-gray-200 dark:border-gray-700 hover:shadow-2xl transition-all duration-300"
+              >
+                <div className="flex items-start gap-4 mb-4">
+                  <div className="p-3 bg-gradient-to-br from-orange-400 to-orange-600 dark:from-orange-500 dark:to-orange-700 rounded-xl">
+                    <Hammer className="w-8 h-8 text-white" />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-1">
+                      BUILD-MPT
+                    </h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                      Construction phase financing
+                    </p>
+                  </div>
+                </div>
+                <div className="space-y-3 mb-6">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-1">
+                      Propósito:
+                    </p>
+                    <p className="text-gray-700 dark:text-gray-200">
+                      Financiamento de construção
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-1">
+                      Exemplo:
+                    </p>
+                    <p className="text-gray-700 dark:text-gray-200">
+                      CAPEX tranches
+                    </p>
+                  </div>
+                </div>
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  className="w-full px-4 py-3 bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700 text-white rounded-xl font-semibold transition-all duration-300 flex items-center justify-center gap-2 shadow-md hover:shadow-lg"
+                >
+                  Emitir BUILD-MPT
+                  <ArrowRight className="w-5 h-5" />
+                </motion.button>
+              </motion.div>
+
+              {/* REV-MPT Card */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: 0.3 }}
+                whileHover={{ scale: 1.02, y: -5 }}
+                className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-6 border border-gray-200 dark:border-gray-700 hover:shadow-2xl transition-all duration-300"
+              >
+                <div className="flex items-start gap-4 mb-4">
+                  <div className="p-3 bg-gradient-to-br from-yellow-400 to-yellow-600 dark:from-yellow-500 dark:to-yellow-700 rounded-xl">
+                    <DollarSign className="w-8 h-8 text-white" />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-1">
+                      REV-MPT
+                    </h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                      Revenue distribution rights
+                    </p>
+                  </div>
+                </div>
+                <div className="space-y-3 mb-6">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-1">
+                      Propósito:
+                    </p>
+                    <p className="text-gray-700 dark:text-gray-200">
+                      Direitos de receita
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-1">
+                      Exemplo:
+                    </p>
+                    <p className="text-gray-700 dark:text-gray-200">
+                      Rent or profit share
+                    </p>
+                  </div>
+                </div>
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  className="w-full px-4 py-3 bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700 text-white rounded-xl font-semibold transition-all duration-300 flex items-center justify-center gap-2 shadow-md hover:shadow-lg"
+                >
+                  Emitir REV-MPT
+                  <ArrowRight className="w-5 h-5" />
+                </motion.button>
+              </motion.div>
+
+              {/* COL-MPT Card */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: 0.4 }}
+                whileHover={{ scale: 1.02, y: -5 }}
+                className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-6 border border-gray-200 dark:border-gray-700 hover:shadow-2xl transition-all duration-300"
+              >
+                <div className="flex items-start gap-4 mb-4">
+                  <div className="p-3 bg-gradient-to-br from-purple-400 to-purple-600 dark:from-purple-500 dark:to-purple-700 rounded-xl">
+                    <Lock className="w-8 h-8 text-white" />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-1">
+                      COL-MPT
+                    </h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                      Collateral representation
+                    </p>
+                  </div>
+                </div>
+                <div className="space-y-3 mb-6">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-1">
+                      Propósito:
+                    </p>
+                    <p className="text-gray-700 dark:text-gray-200">
+                      Representação de colateral
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-1">
+                      Exemplo:
+                    </p>
+                    <p className="text-gray-700 dark:text-gray-200">
+                      Locked LAND = Credit Power
+                    </p>
+                  </div>
+                </div>
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  className="w-full px-4 py-3 bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700 text-white rounded-xl font-semibold transition-all duration-300 flex items-center justify-center gap-2 shadow-md hover:shadow-lg"
+                >
+                  Emitir COL-MPT
+                  <ArrowRight className="w-5 h-5" />
+                </motion.button>
+              </motion.div>
+            </div>
+          </motion.div>
+        )}
       </div>
     </main>
   );
 }
-
