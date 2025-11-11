@@ -25,7 +25,7 @@
     "errors:check": "tsx scripts/monitor-errors.ts --check-new",
     "test": "vitest",
     "test:e2e": "vitest run tests/e2e",
-    "test:e2e:primary": "vitest run tests/e2e/primary-purchase.test.ts",
+    "test:e2e:primary:vitest": "vitest run tests/e2e/primary-purchase.test.ts",
     "test:e2e:compliance": "vitest run tests/e2e/compliance.test.ts",
     "test:e2e:errors": "vitest run tests/e2e/error-collection.test.ts",
     "test:performance": "vitest run tests/performance",

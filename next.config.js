@@ -15,6 +15,33 @@ const nextConfig = {
       fs: false,
     };
 
+    // No servidor, configurar módulos nativos do WebSocket
+    if (isServer) {
+      const webpack = require('webpack');
+      const path = require('path');
+      
+      // Adicionar alias para garantir que os stubs sejam encontrados
+      config.resolve.alias = {
+        ...config.resolve.alias,
+        'bufferutil': path.resolve(__dirname, 'lib/utils/bufferutil-stub.js'),
+        'utf-8-validate': path.resolve(__dirname, 'lib/utils/utf8-validate-stub.js'),
+      };
+      
+      // Substituir módulos opcionais do ws por stubs
+      // Isso evita que o webpack tente processar código que referencia esses módulos
+      config.plugins = config.plugins || [];
+      config.plugins.push(
+        new webpack.NormalModuleReplacementPlugin(
+          /^bufferutil$/,
+          path.resolve(__dirname, 'lib/utils/bufferutil-stub.js')
+        ),
+        new webpack.NormalModuleReplacementPlugin(
+          /^utf-8-validate$/,
+          path.resolve(__dirname, 'lib/utils/utf8-validate-stub.js')
+        )
+      );
+    }
+
     return config;
   },
   // Configuração experimental para melhorar o build

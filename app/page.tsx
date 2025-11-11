@@ -417,11 +417,11 @@ export default function Home() {
       return;
     }
 
-    // Verifica se está mockado
-    if (isInvestmentMocked()) {
-      alert('Investimento temporariamente desabilitado. Sistema em configuração.');
-      return;
-    }
+    // Verifica se está mockado (mantido para referência, mas não bloqueia mais)
+    // if (isInvestmentMocked()) {
+    //   alert('Investimento temporariamente desabilitado. Sistema em configuração.');
+    //   return;
+    // }
 
     // Busca informações do projeto para obter wallet de destino
     const project = availableTokens.find(p => p.id === projectId) || 
@@ -562,7 +562,7 @@ export default function Home() {
       alert(error.message || 'Erro ao realizar investimento');
       throw error;
     }
-  }, [isConnected, account, xrpBalance, availableTokens, investmentProjects, fetchInvestmentProjects, isInvestmentMocked]);
+  }, [isConnected, account, xrpBalance, availableTokens, investmentProjects, fetchInvestmentProjects]);
 
   useEffect(() => {
     if (isConnected && account && !hasLoadedTokens) {
@@ -1378,6 +1378,13 @@ export default function Home() {
               >
                 Investimentos
               </button>
+              <Link
+                href="/admin/mpt"
+                className="px-4 py-2 font-semibold transition-all duration-300 border-b-2 border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 flex items-center gap-2"
+              >
+                <Sparkles className="w-4 h-4" />
+                Gerenciar MPTs
+              </Link>
             </div>
 
             {(issuanceSuccess || issuanceError) && (

@@ -91,11 +91,11 @@ export default function DashboardPage() {
   };
 
   const handleInvest = async (projectId: string, amount: number) => {
-    // Verifica se está mockado
-    if (isInvestmentMocked()) {
-      alert('Investimento temporariamente desabilitado. Sistema em configuração.');
-      return;
-    }
+    // Verifica se está mockado (mantido para referência, mas não bloqueia mais)
+    // if (isInvestmentMocked()) {
+    //   alert('Investimento temporariamente desabilitado. Sistema em configuração.');
+    //   return;
+    // }
     try {
       const response = await fetch('/api/investments', {
         method: 'POST',

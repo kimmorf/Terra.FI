@@ -245,7 +245,10 @@ export default function TradeTokensPage() {
         const currentAccount = account;
         const project = selectedProject;
 
-        if (!currentAccount || !project) return;
+        if (!currentAccount || !project) {
+            setMptTrustlineError('Conecte sua carteira e selecione um token.');
+            return;
+        }
 
         const resolvedIssuer = ((issuerAddress && issuerAddress.trim()) || project.issuerAddress || '').trim();
 
@@ -254,35 +257,82 @@ export default function TradeTokensPage() {
             return;
         }
 
+        // Validar formato do endereço do emissor
+        if (!resolvedIssuer.startsWith('r') || resolvedIssuer.length < 25) {
+            setMptTrustlineError('Endereço do emissor inválido. Deve começar com "r" e ter pelo menos 25 caracteres.');
+            return;
+        }
+
         setIsSubmitting(true);
         setMptTrustlineMessage(null);
         setMptTrustlineError(null);
 
         try {
+            console.log('[Trade] Criando trustline do MPT:', {
+                account: currentAccount.address,
+                currency: project.currency,
+                issuer: resolvedIssuer,
+            });
+
             const response = await trustSetToken({
                 account: currentAccount.address,
                 currency: project.currency,
                 issuer: resolvedIssuer,
                 limit: '1000000000',
             });
-            const hash = extractTransactionHash(response);
 
-            await registerAction({
-                type: 'trustset',
-                token: { currency: project.currency, issuer: resolvedIssuer },
-                actor: currentAccount.address,
-                network: currentAccount.network,
-                txHash: hash ?? 'trustline',
-                metadata: { limit: '1000000000', scope: 'mpt' },
-            });
+            const hash = extractTransactionHash(response);
+            console.log('[Trade] Trustline criada com sucesso. Hash:', hash);
+
+            // Registrar ação no backend
+            try {
+                await registerAction({
+                    type: 'trustset',
+                    token: { currency: project.currency, issuer: resolvedIssuer },
+                    actor: currentAccount.address,
+                    network: currentAccount.network,
+                    txHash: hash ?? 'trustline',
+                    metadata: { limit: '1000000000', scope: 'mpt' },
+                });
+            } catch (registerError) {
+                console.warn('[Trade] Erro ao registrar ação (não crítico):', registerError);
+                // Não falha a operação se o registro falhar
+            }
 
             setMptTrustlineStatus('ok');
-            setMptTrustlineMessage(`Trustline para ${project.currency} configurada.`);
-        } catch (error) {
-            console.error('Erro ao criar trustline do MPT:', error);
-            const message =
-                error instanceof Error ? error.message : 'Falha ao criar trustline do MPT.';
-            setMptTrustlineError(message);
+            setMptTrustlineMessage(`Trustline para ${project.currency} configurada com sucesso.`);
+        } catch (error: any) {
+            console.error('[Trade] Erro ao criar trustline do MPT:', error);
+            
+            // Extrair mensagem de erro mais detalhada
+            let errorMessage = 'Falha ao criar trustline do MPT.';
+            
+            if (error instanceof Error) {
+                errorMessage = error.message;
+            } else if (typeof error === 'string') {
+                errorMessage = error;
+            } else if (error?.message) {
+                errorMessage = error.message;
+            } else if (error?.data?.result?.engine_result_message) {
+                errorMessage = error.data.result.engine_result_message;
+            } else if (error?.data?.message) {
+                errorMessage = error.data.message;
+            } else if (error?.response?.data?.result?.engine_result_message) {
+                errorMessage = error.response.data.result.engine_result_message;
+            }
+
+            // Mensagens de erro mais amigáveis
+            if (errorMessage.toLowerCase().includes('rejected') || errorMessage.toLowerCase().includes('canceled') || errorMessage.toLowerCase().includes('cancelled')) {
+                errorMessage = 'Transação cancelada pelo usuário.';
+            } else if (errorMessage.toLowerCase().includes('insufficient')) {
+                errorMessage = 'Saldo insuficiente para criar trustline. Você precisa de XRP para pagar a taxa de transação.';
+            } else if (errorMessage.toLowerCase().includes('invalid') || errorMessage.toLowerCase().includes('malformed')) {
+                errorMessage = 'Dados inválidos. Verifique o endereço do emissor e tente novamente.';
+            } else if (errorMessage.toLowerCase().includes('tec')) {
+                errorMessage = `Erro na transação: ${errorMessage}. Verifique se você tem saldo suficiente e se o token existe.`;
+            }
+
+            setMptTrustlineError(errorMessage);
         } finally {
             setIsSubmitting(false);
         }

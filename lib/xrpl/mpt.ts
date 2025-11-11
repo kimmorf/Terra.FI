@@ -205,17 +205,29 @@ export async function getIssuedMPTokens(params: {
     }
 
     const result = await withXRPLRetry(async () => {
-        const client = await xrplPool.getClient(network as XRPLNetwork);
+        let client;
+        try {
+            client = await xrplPool.getClient(network as XRPLNetwork);
+            
+            // Verificar se o client está conectado
+            if (!client.isConnected()) {
+                await client.connect();
+            }
+        } catch (connectionError: any) {
+            console.error('[getIssuedMPTokens] Erro ao conectar com XRPL:', connectionError);
+            throw new Error(`Erro ao conectar com a rede XRPL: ${connectionError.message || 'websocket foi fechado'}`);
+        }
         
-        // Buscar objetos MPTokenIssuance emitidos por esta conta
-        // Nota: account_objects não suporta filtro por tipo para MPTokenIssuance diretamente
-        // Vamos buscar todos os objetos e filtrar
-        const response = await client.request({
-            command: 'account_objects',
-            account: issuer,
-            ledger_index: 'validated',
-            limit: 400, // Limite máximo
-        });
+        try {
+            // Buscar objetos MPTokenIssuance emitidos por esta conta
+            // Nota: account_objects não suporta filtro por tipo para MPTokenIssuance diretamente
+            // Vamos buscar todos os objetos e filtrar
+            const response = await client.request({
+                command: 'account_objects',
+                account: issuer,
+                ledger_index: 'validated',
+                limit: 400, // Limite máximo
+            });
 
         const allObjects = response.result.account_objects ?? [];
         
@@ -308,6 +320,14 @@ export async function getIssuedMPTokens(params: {
         );
 
         return mptIssuances;
+        } catch (requestError: any) {
+            console.error('[getIssuedMPTokens] Erro ao fazer requisição:', requestError);
+            // Se o erro é de websocket fechado, relançar com mensagem mais clara
+            if (requestError.message?.includes('websocket') || requestError.message?.includes('closed')) {
+                throw new Error(`Conexão com a rede XRPL foi fechada. Tente novamente.`);
+            }
+            throw requestError;
+        }
     }, { maxAttempts: 3 });
 
     // Cachear por 30 segundos

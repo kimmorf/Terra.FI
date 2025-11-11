@@ -426,6 +426,39 @@ export function buildTrustSetTransaction({
   limit = '1000000000',
   flags,
 }: TrustSetParams) {
+  // Validações básicas
+  if (!account || typeof account !== 'string') {
+    throw new Error('Account é obrigatório e deve ser uma string');
+  }
+  
+  if (!currency || typeof currency !== 'string') {
+    throw new Error('Currency é obrigatório e deve ser uma string');
+  }
+  
+  if (!issuer || typeof issuer !== 'string') {
+    throw new Error('Issuer é obrigatório e deve ser uma string');
+  }
+  
+  // Validar formato do endereço
+  if (!account.startsWith('r') || account.length < 25) {
+    throw new Error('Account deve ser um endereço XRPL válido (começa com "r")');
+  }
+  
+  if (!issuer.startsWith('r') || issuer.length < 25) {
+    throw new Error('Issuer deve ser um endereço XRPL válido (começa com "r")');
+  }
+  
+  // Validar limit
+  if (!limit || typeof limit !== 'string') {
+    throw new Error('Limit deve ser uma string');
+  }
+  
+  // Validar que limit é um número válido
+  const limitNum = parseFloat(limit);
+  if (isNaN(limitNum) || limitNum < 0) {
+    throw new Error('Limit deve ser um número positivo');
+  }
+
   const transaction: Record<string, unknown> = {
     TransactionType: 'TrustSet',
     Account: account,
@@ -502,6 +535,16 @@ export async function signAndSubmitTransaction(
     throw new Error(`TransactionType deve ser uma string. Recebido: ${typeof txJson.TransactionType}`);
   }
 
+  // Log da transação antes de enviar (apenas em dev)
+  if (process.env.NODE_ENV === 'development') {
+    console.log('[Crossmark] Enviando transação:', {
+      TransactionType: txJson.TransactionType,
+      Account: txJson.Account,
+      keys: Object.keys(txJson),
+      txJson: JSON.stringify(txJson, null, 2),
+    });
+  }
+
   try {
     const response = await sdk.async.signAndSubmitAndWait({
       tx_json: txJson,
@@ -519,39 +562,103 @@ export async function signAndSubmitTransaction(
       console.log('[Crossmark] Resposta completa:', JSON.stringify(response, null, 2));
     }
 
-    // Verificar status da transação
-    const status = 
-      (response as any)?.data?.result?.engine_result ??
-      (response as any)?.data?.engine_result ??
-      (response as any)?.result?.engine_result ??
-      (response as any)?.engine_result;
+    const responseObj = response as any;
+    
+    // PRIMEIRO: Verificar se há erro na resposta (antes de verificar status)
+    // O Crossmark pode retornar erro em response.data.errorMessage ou response.response.data.errorMessage
+    const errorMessage = 
+      responseObj?.response?.data?.errorMessage ??
+      responseObj?.data?.errorMessage ??
+      responseObj?.errorMessage;
+    
+    // Verificar meta para erros
+    const meta = 
+      responseObj?.response?.data?.meta ??
+      responseObj?.data?.meta;
+    
+    // Se há erro ou meta indica erro, lançar exceção IMEDIATAMENTE
+    if (errorMessage || meta?.isError || meta?.isRejected) {
+      const finalErrorMessage = errorMessage || 'Transação rejeitada ou falhou';
+      
+      console.error('[Crossmark] Transação rejeitada ou com erro:', {
+        errorMessage: finalErrorMessage,
+        meta,
+        transactionType: txJson.TransactionType,
+        account: txJson.Account,
+      });
+      
+      // Se o erro menciona TransactionType, pode ser que o tipo não seja suportado
+      if (finalErrorMessage.includes('TransactionType')) {
+        throw new Error(
+          `Tipo de transação não suportado ou inválido: ${txJson.TransactionType}. ` +
+          `O Crossmark pode não suportar este tipo de transação ainda. ` +
+          `Erro: ${finalErrorMessage}`
+        );
+      }
+      
+      throw new Error(finalErrorMessage);
+    }
 
-    if (status && !status.startsWith('tes')) {
-      const errorMessage = 
-        (response as any)?.data?.result?.engine_result_message ?? 
-        (response as any)?.data?.message ?? 
-        (response as any)?.message ??
+    // Verificar status da transação - múltiplos caminhos possíveis
+    const status = 
+      responseObj?.data?.result?.engine_result ??
+      responseObj?.data?.engine_result ??
+      responseObj?.result?.engine_result ??
+      responseObj?.engine_result ??
+      responseObj?.response?.data?.result?.engine_result ??
+      responseObj?.response?.data?.engine_result ??
+      responseObj?.response?.result?.engine_result;
+
+    // Verificar se a transação falhou
+    if (status && typeof status === 'string' && !status.startsWith('tes')) {
+      // Extrair mensagem de erro mais detalhada
+      const statusErrorMessage = 
+        responseObj?.data?.result?.engine_result_message ?? 
+        responseObj?.data?.result?.message ??
+        responseObj?.data?.message ?? 
+        responseObj?.message ??
+        responseObj?.response?.data?.result?.engine_result_message ??
+        responseObj?.response?.data?.message ??
+        responseObj?.response?.message ??
         `Transação falhou: ${status}`;
-      throw new Error(errorMessage);
+      
+      // Log detalhado do erro
+      console.error('[Crossmark] Transação falhou:', {
+        status,
+        errorMessage: statusErrorMessage,
+        transactionType: txJson.TransactionType,
+        account: txJson.Account,
+      });
+      
+      throw new Error(statusErrorMessage || `Transação falhou com código: ${status}`);
     }
 
     // Verifica se tem hash na resposta (apenas log, não falha)
+    // Só tenta extrair hash se não houver erro
     const hash = extractTransactionHash(response);
     if (!hash) {
-      // Log detalhado para debug
-      const responseObj = response as any;
-      console.warn('[Crossmark] Resposta não contém hash detectável. Estrutura:', {
-        keys: Object.keys(responseObj),
-        hasData: !!responseObj?.data,
-        hasResponse: !!responseObj?.response,
-        hasResult: !!responseObj?.result,
-        responseType: typeof responseObj?.response,
-        responseKeys: responseObj?.response ? Object.keys(responseObj.response) : null,
-      });
+      // Se não tem hash mas também não tem erro, pode ser que a transação ainda esteja pendente
+      // ou que o formato da resposta seja diferente
+      const hasError = 
+        responseObj?.response?.data?.errorMessage ||
+        responseObj?.data?.errorMessage ||
+        responseObj?.errorMessage;
       
-      // Tenta extrair hash de outras formas
-      if (responseObj?.response) {
-        console.log('[Crossmark] Explorando response:', responseObj.response);
+      if (!hasError) {
+        // Log detalhado para debug apenas se não houver erro
+        console.warn('[Crossmark] Resposta não contém hash detectável. Estrutura:', {
+          keys: Object.keys(responseObj),
+          hasData: !!responseObj?.data,
+          hasResponse: !!responseObj?.response,
+          hasResult: !!responseObj?.result,
+          responseType: typeof responseObj?.response,
+          responseKeys: responseObj?.response ? Object.keys(responseObj.response) : null,
+        });
+        
+        // Tenta extrair hash de outras formas
+        if (responseObj?.response) {
+          console.log('[Crossmark] Explorando response:', responseObj.response);
+        }
       }
     } else {
       console.log('[Crossmark] Hash extraído com sucesso:', hash);
@@ -564,14 +671,39 @@ export async function signAndSubmitTransaction(
       error?.message?.toLowerCase().includes('rejected') || 
       error?.message?.toLowerCase().includes('canceled') || 
       error?.message?.toLowerCase().includes('cancelled') ||
-      error?.code === 'USER_REJECTED'
+      error?.code === 'USER_REJECTED' ||
+      error?.code === 'USER_CANCELED'
     ) {
       throw new Error('Transação cancelada pelo usuário');
     }
     
-    // Log do erro completo
+    // Se o erro já tem uma mensagem clara, apenas relança
+    if (error instanceof Error && error.message) {
+      console.error('[Crossmark] Erro ao enviar transação:', {
+        message: error.message,
+        transactionType: txJson.TransactionType,
+        account: txJson.Account,
+        error: error,
+      });
+      throw error;
+    }
+    
+    // Log do erro completo e cria um novo erro com mensagem clara
     console.error('[Crossmark] Erro ao enviar transação:', error);
-    throw error;
+    
+    // Tenta extrair mensagem do erro de múltiplos caminhos possíveis
+    const errorMessage = 
+      error?.message ??
+      error?.response?.data?.errorMessage ??
+      error?.data?.errorMessage ??
+      error?.data?.result?.engine_result_message ??
+      error?.data?.message ??
+      error?.response?.data?.result?.engine_result_message ??
+      error?.response?.data?.message ??
+      error?.errorMessage ??
+      'Erro desconhecido ao enviar transação';
+    
+    throw new Error(errorMessage);
   }
 }
 

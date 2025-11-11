@@ -177,33 +177,17 @@ export function InvestmentCard({ project, onInvest, isMocked = false }: Investme
         </div>
       </div>
 
-      {isMocked && (
-        <div className="mb-3 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
-          <div className="flex items-center gap-2 text-yellow-800 dark:text-yellow-200">
-            <AlertCircle className="w-4 h-4" />
-            <p className="text-xs font-medium">
-              Investimento temporariamente desabilitado (sistema em configuração)
-            </p>
-          </div>
-        </div>
-      )}
-      
       <motion.button
-        whileHover={!isMocked ? { scale: 1.05 } : {}}
-        whileTap={!isMocked ? { scale: 0.95 } : {}}
+        whileHover={{ scale: 1.05 }}
+        whileTap={{ scale: 0.95 }}
         onClick={handleInvest}
-        disabled={isInvesting || remaining <= 0 || isMocked}
+        disabled={isInvesting || remaining <= 0}
         className="w-full px-4 py-3 bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700 text-white rounded-xl font-semibold transition-all duration-300 flex items-center justify-center gap-2 shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {isInvesting ? (
           <>
             <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
             Investindo...
-          </>
-        ) : isMocked ? (
-          <>
-            <AlertCircle className="w-5 h-5" />
-            Indisponível
           </>
         ) : remaining <= 0 ? (
           'Meta Atingida'

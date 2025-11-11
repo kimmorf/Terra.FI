@@ -65,13 +65,17 @@ export function isXRPLRetryableError(error: any): boolean {
     'ECONNRESET',
     'ETIMEDOUT',
     'disconnected',
+    'websocket',
+    'closed',
+    'disconnectederror',
   ];
 
   const message = error?.message?.toLowerCase() || '';
   const errorCode = error?.code?.toLowerCase() || '';
+  const errorName = error?.name?.toLowerCase() || '';
   
   return retryableMessages.some((msg) => 
-    message.includes(msg) || errorCode.includes(msg)
+    message.includes(msg) || errorCode.includes(msg) || errorName.includes(msg)
   );
 }
 

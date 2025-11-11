@@ -169,33 +169,119 @@ export function useCrossmark() {
         throw new Error('Não foi possível detectar a extensão Crossmark. Certifique-se de que a extensão está instalada e ativa.');
       }
 
-      // Primeiro chama connect() para abrir a extensão e aguardar
-      console.log('[Crossmark] Chamando connect() para abrir a extensão...');
-      const connectResponse = await sdk.async.connect?.(10000);
-      console.log('[Crossmark] Connect response:', connectResponse);
-
-      if (!connectResponse) {
-        throw new Error('A Crossmark não respondeu ao pedido de conexão.');
-      }
-
-      // Depois chama signInAndWait para aguardar a aprovação do usuário
-      console.log('[Crossmark] Aguardando sign in do usuário...');
-      const signInResponse = await sdk.async.signInAndWait?.();
-      console.log('[Crossmark] Sign in response:', signInResponse);
-
-      // Tenta obter a conta do response ou do SDK sync
+      // Tenta usar signInAndWait diretamente primeiro (método mais direto)
+      // Se não funcionar, tenta o fluxo connect() + signInAndWait()
+      console.log('[Crossmark] Tentando conectar diretamente com signInAndWait...');
+      let signInResponse;
       let account: CrossmarkAccount | null = null;
 
-      const responseData = signInResponse?.response?.data;
+      try {
+        // Primeiro tenta signInAndWait diretamente (método mais simples e direto)
+        const signInPromise = sdk.async.signInAndWait?.();
+        if (!signInPromise) {
+          throw new Error('signInAndWait não está disponível no SDK.');
+        }
+
+        signInResponse = await Promise.race([
+          signInPromise,
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('TIMEOUT_SIGNIN')), 60000)
+          )
+        ]);
+
+        console.log('[Crossmark] Sign in response recebida:', signInResponse);
+      } catch (signInError: any) {
+        console.warn('[Crossmark] signInAndWait direto falhou, tentando fluxo connect() + signInAndWait():', signInError);
+        
+        // Se signInAndWait direto falhou, tenta o fluxo completo
+        if (signInError?.message === 'TIMEOUT_SIGNIN') {
+          // Se deu timeout, tenta o fluxo alternativo
+          console.log('[Crossmark] Tentando fluxo alternativo com connect() primeiro...');
+          
+          try {
+            // Primeiro chama connect() para abrir a extensão
+            const connectResponse = await Promise.race([
+              sdk.async.connect?.(30000),
+              new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('TIMEOUT_CONNECT')), 30000)
+              )
+            ]);
+            
+            console.log('[Crossmark] Connect response:', connectResponse);
+
+            if (!connectResponse) {
+              throw new Error('A Crossmark não respondeu ao pedido de conexão.');
+            }
+
+            // Aguarda um pouco para a extensão abrir
+            await new Promise(resolve => setTimeout(resolve, 1000));
+
+            // Depois tenta signInAndWait novamente
+            const signInPromise2 = sdk.async.signInAndWait?.();
+            if (!signInPromise2) {
+              throw new Error('signInAndWait não está disponível no SDK.');
+            }
+
+            signInResponse = await Promise.race([
+              signInPromise2,
+              new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('TIMEOUT_SIGNIN')), 60000)
+              )
+            ]);
+
+            console.log('[Crossmark] Sign in response (após connect):', signInResponse);
+          } catch (connectError: any) {
+            console.error('[Crossmark] Erro no fluxo alternativo:', connectError);
+            
+            if (connectError?.message === 'TIMEOUT_CONNECT') {
+              throw new Error('A extensão Crossmark não respondeu. Verifique se a extensão está instalada, ativa e tente novamente.');
+            }
+            if (connectError?.message === 'TIMEOUT_SIGNIN') {
+              throw new Error('Aguardando aprovação do usuário na extensão Crossmark. Por favor, verifique se a extensão está aberta e aprovou a conexão.');
+            }
+            if (connectError?.message?.toLowerCase().includes('rejected') || 
+                connectError?.message?.toLowerCase().includes('canceled') ||
+                connectError?.message?.toLowerCase().includes('cancelled')) {
+              throw new Error('Conexão cancelada pelo usuário.');
+            }
+            throw connectError;
+          }
+        } else {
+          // Outro tipo de erro
+          if (signInError?.message?.toLowerCase().includes('rejected') || 
+              signInError?.message?.toLowerCase().includes('canceled') ||
+              signInError?.message?.toLowerCase().includes('cancelled')) {
+            throw new Error('Conexão cancelada pelo usuário.');
+          }
+          throw signInError;
+        }
+      }
+      
+      console.log('[Crossmark] Sign in response final:', signInResponse);
+
+      // Tenta obter a conta do response ou do SDK sync
+      const responseData = (signInResponse as any)?.response?.data || (signInResponse as any)?.data || signInResponse;
 
       if (responseData) {
-        account = {
-          address: responseData.address,
-          network: inferNetwork(responseData.network),
-          publicKey: responseData.publicKey,
-        };
-      } else {
-        // Tenta obter do SDK sync
+        // Tenta múltiplos caminhos para obter os dados
+        const address = responseData.address || responseData.account || responseData.Account;
+        const network = responseData.network || responseData.Network;
+        const publicKey = responseData.publicKey || responseData.public_key || responseData.PublicKey;
+
+        if (address) {
+          account = {
+            address,
+            network: inferNetwork(network),
+            publicKey,
+          };
+        }
+      }
+
+      // Se não conseguiu do response, tenta do SDK sync
+      if (!account) {
+        console.log('[Crossmark] Tentando obter conta do SDK sync...');
+        // Aguarda um pouco mais para garantir que o SDK está sincronizado
+        await new Promise(resolve => setTimeout(resolve, 1000));
         account = buildAccount();
       }
 
