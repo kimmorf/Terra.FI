@@ -23,3 +23,15 @@ export function getPrismaClient(): PrismaClient | null {
   return globalForPrisma.prisma;
 }
 
+// Export a non-nullable prisma instance for convenience
+// Throws an error if DATABASE_URL is not configured
+export const prisma = (() => {
+  const client = getPrismaClient();
+  if (!client) {
+    throw new Error(
+      'DATABASE_URL não configurada. Configure a variável de ambiente DATABASE_URL para usar o Prisma.',
+    );
+  }
+  return client;
+})();
+

@@ -201,11 +201,12 @@ export default function TokenFactoryPage() {
             const response = await signAndSubmitTransaction(transaction);
 
             const hash =
-                response?.data?.hash ??
-                response?.data?.result?.hash ??
-                response?.data?.result?.tx_json?.hash ??
-                response?.data?.tx_json?.hash ??
-                response?.result?.hash ??
+                (response as any)?.hash ??
+                (response as any)?.result?.hash ??
+                (response as any)?.result?.tx_json?.hash ??
+                (response as any)?.tx_json?.hash ??
+                (response as any)?.response?.hash ??
+                (response as any)?.response?.result?.hash ??
                 null;
 
             if (!hash) {
