@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { getPrismaClient } from '@/lib/prisma';
 import { auth } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
@@ -7,10 +7,18 @@ export const dynamic = 'force-dynamic';
 // GET - Buscar investimentos do usuário logado
 export async function GET(request: NextRequest) {
   try {
+    const prisma = getPrismaClient();
+    if (!prisma) {
+      return NextResponse.json(
+        { error: 'DATABASE_URL não configurada. Banco de dados indisponível.' },
+        { status: 503 },
+      );
+    }
+
     const session = await auth.api.getSession({
       headers: request.headers,
     });
-    
+
     if (!session) {
       return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });
     }

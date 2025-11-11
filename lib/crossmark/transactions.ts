@@ -50,6 +50,20 @@ export interface TrustSetParams {
   flags?: number;
 }
 
+export function extractTransactionHash(response: unknown): string | null {
+  if (!response || typeof response !== 'object') return null;
+
+  const obj = response as Record<string, any>;
+  return (
+    obj?.data?.hash ??
+    obj?.data?.result?.hash ??
+    obj?.data?.result?.tx_json?.hash ??
+    obj?.data?.tx_json?.hash ??
+    obj?.result?.hash ??
+    null
+  );
+}
+
 function stringToHex(input: string): string {
   const encoder = new TextEncoder();
   return Array.from(encoder.encode(input))

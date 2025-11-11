@@ -27,6 +27,7 @@ import {
     freezeMPToken,
     clawbackMPToken,
     sendMPToken,
+    extractTransactionHash,
 } from '@/lib/crossmark/transactions';
 import { TOKEN_PRESETS, TOKEN_CONFIG, type TokenPreset } from '@/lib/tokens/presets';
 import { registerAction } from '@/lib/elysia-client';
@@ -318,13 +319,7 @@ export default function ManageTokensPage() {
                 holder: holderAddress.trim(),
                 authorize,
             });
-
-            const hash =
-                response?.data?.hash ??
-                response?.data?.result?.hash ??
-                response?.data?.tx_json?.hash ??
-                response?.result?.hash ??
-                null;
+            const hash = extractTransactionHash(response);
 
             await registerAction({
                 type: 'authorize',
@@ -398,13 +393,7 @@ export default function ManageTokensPage() {
                 issuer: account.address,
                 memo: paymentMemo.trim() || undefined,
             });
-
-            const hash =
-                response?.data?.hash ??
-                response?.data?.result?.hash ??
-                response?.data?.tx_json?.hash ??
-                response?.result?.hash ??
-                null;
+            const hash = extractTransactionHash(response);
 
             await registerAction({
                 type: 'payment',
@@ -457,13 +446,7 @@ export default function ManageTokensPage() {
                 holder: freezeHolder.trim(),
                 freeze,
             });
-
-            const hash =
-                response?.data?.hash ??
-                response?.data?.result?.hash ??
-                response?.data?.tx_json?.hash ??
-                response?.result?.hash ??
-                null;
+            const hash = extractTransactionHash(response);
 
             await registerAction({
                 type: 'freeze',
@@ -515,13 +498,7 @@ export default function ManageTokensPage() {
                 holder: clawbackHolder.trim(),
                 amount: baseUnits,
             });
-
-            const hash =
-                response?.data?.hash ??
-                response?.data?.result?.hash ??
-                response?.data?.tx_json?.hash ??
-                response?.result?.hash ??
-                null;
+            const hash = extractTransactionHash(response);
 
             await registerAction({
                 type: 'clawback',
