@@ -65,14 +65,20 @@ export default function AdminWalletsPage() {
       const data = (await response.json()) as ServiceWallet[];
       setWallets(data);
 
-      // Define seleção automática com base no banco
-      const active = data.find((wallet) => wallet.isActive) || data[0] || null;
-      if (active) {
-        setSelectedWalletId(active.id);
+      // Mantém a seleção atual do localStorage, se existir e for válida
+      const currentSelectedId = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null;
+      if (currentSelectedId && data.find((w) => w.id === currentSelectedId)) {
+        // Carteira selecionada ainda existe
+        setSelectedWalletId(currentSelectedId);
+      } else if (data.length > 0 && !currentSelectedId) {
+        // Se não tem seleção e há carteiras, seleciona a primeira automaticamente
+        const first = data[0];
+        setSelectedWalletId(first.id);
         if (typeof window !== 'undefined') {
-          localStorage.setItem(STORAGE_KEY, active.id);
+          localStorage.setItem(STORAGE_KEY, first.id);
         }
       } else {
+        // Nenhuma carteira disponível
         setSelectedWalletId(null);
         if (typeof window !== 'undefined') {
           localStorage.removeItem(STORAGE_KEY);
@@ -122,10 +128,10 @@ export default function AdminWalletsPage() {
 
       const wallet = (await response.json()) as ServiceWallet;
 
-      // Seleciona automaticamente a carteira recém criada
-      await selectWalletOnServer(wallet.id);
-      
+      // Seleciona automaticamente a carteira recém criada (apenas localmente)
+      setSelectedWalletId(wallet.id);
       if (typeof window !== 'undefined') {
+        localStorage.setItem(STORAGE_KEY, wallet.id);
         // Disparar evento customizado para notificar outras páginas
         window.dispatchEvent(new CustomEvent('walletSelected', { detail: { walletId: wallet.id } }));
         window.dispatchEvent(new Event('storage'));
@@ -147,22 +153,9 @@ export default function AdminWalletsPage() {
     }
   };
 
-  const selectWalletOnServer = async (id: string) => {
-    const response = await fetch('/api/admin/wallets/select', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ walletId: id }),
-    });
-
-    if (!response.ok) {
-      const data = await response.json().catch(() => ({}));
-      throw new Error(data.error || 'Erro ao selecionar carteira');
-    }
-  };
-
   const handleSelect = async (id: string) => {
     try {
-      await selectWalletOnServer(id);
+      // Seleciona apenas localmente (localStorage), sem modificar banco de dados
       setSelectedWalletId(id);
       if (typeof window !== 'undefined') {
         localStorage.setItem(STORAGE_KEY, id);
@@ -174,8 +167,7 @@ export default function AdminWalletsPage() {
         // Também dispara evento storage para compatibilidade
         window.dispatchEvent(new Event('storage'));
       }
-      setSuccess('Carteira selecionada para operações administrativas.');
-      await loadWallets();
+      setSuccess('Carteira selecionada para operações nesta máquina/sessão.');
     } catch (err: any) {
       setError(err.message || 'Erro ao selecionar carteira');
     }
@@ -438,13 +430,13 @@ export default function AdminWalletsPage() {
                               <button
                                 onClick={() => handleSelect(wallet.id)}
                                 className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 ${
-                                  wallet.isActive
+                                  isSelected
                                     ? 'bg-green-600 text-white'
                                     : 'bg-blue-600 hover:bg-blue-700 text-white'
                                 }`}
                               >
                                 <LockKeyhole className="w-4 h-4" />
-                                {wallet.isActive ? 'Selecionada' : 'Usar carteira'}
+                                {isSelected ? 'Selecionada' : 'Selecionar'}
                               </button>
                               <button
                                 onClick={() => handleDelete(wallet.id)}

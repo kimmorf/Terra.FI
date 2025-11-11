@@ -139,7 +139,18 @@ export default function Home() {
   const refreshServiceWallet = useCallback(async () => {
     setLoadingServiceWallet(true);
     try {
-      const response = await fetch('/api/investor/wallet');
+      // Buscar walletId do localStorage
+      const walletId = typeof window !== 'undefined' 
+        ? localStorage.getItem('admin:selectedWalletId') 
+        : null;
+
+      if (!walletId) {
+        setServiceWallet(null);
+        setLoadingServiceWallet(false);
+        return;
+      }
+
+      const response = await fetch(`/api/investor/wallet?walletId=${encodeURIComponent(walletId)}`);
       if (!response.ok) {
         setServiceWallet(null);
         return;
@@ -243,6 +254,24 @@ export default function Home() {
     setNoTokensDismissed(false);
     setHasLoadedTokens(false); // Reset flag ao desconectar
   }, [disconnect]);
+
+  const handleDeselectWallet = useCallback(() => {
+    // Remove seleção local da carteira do protocolo
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('admin:selectedWalletId');
+      window.dispatchEvent(new CustomEvent('walletDeselected'));
+      window.dispatchEvent(new Event('storage'));
+    }
+    
+    // Limpa estado
+    setServiceWallet(null);
+    setMptokens([]);
+    setXrpBalance(null);
+    setTokensError(null);
+    setCopied(false);
+    setNoTokensDismissed(false);
+    setHasLoadedTokens(false);
+  }, []);
 
   const copyAddress = useCallback(() => {
     const addressToCopy = effectiveAddress;
@@ -634,6 +663,7 @@ export default function Home() {
     }
   }, [isConnected, account, xrpBalance, availableTokens, investmentProjects, fetchInvestmentProjects]);
 
+  // Carregar dados quando Crossmark conecta
   useEffect(() => {
     if (isConnected && account && !hasLoadedTokens) {
       // Carrega apenas uma vez quando conecta e ainda não carregou
@@ -647,6 +677,17 @@ export default function Home() {
       setHasLoadedTokens(false);
     }
   }, [isConnected, account, hasLoadedTokens, loadAccountData]);
+
+  // Carregar dados quando carteira do protocolo é selecionada
+  useEffect(() => {
+    if (serviceWallet && !hasLoadedTokens && !loadingTokens) {
+      console.log('[App] Carteira do protocolo selecionada, carregando dados...', {
+        address: serviceWallet.address,
+        network: serviceWallet.network,
+      });
+      loadAccountData();
+    }
+  }, [serviceWallet, hasLoadedTokens, loadingTokens, loadAccountData]);
 
   useEffect(() => {
     if (mptokens.length > 0) {
@@ -1005,6 +1046,15 @@ export default function Home() {
                           </span>
                         </div>
                       </div>
+                      <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={handleDeselectWallet}
+                        className="px-4 py-2 bg-purple-500 hover:bg-purple-600 text-white rounded-lg font-semibold text-sm shadow-md hover:shadow-lg transition-all duration-300 flex items-center gap-2"
+                      >
+                        <LogOut className="w-4 h-4" />
+                        Desselecionar
+                      </motion.button>
                     </div>
                     <div className="flex items-center gap-2 bg-gray-100 dark:bg-gray-700 px-4 py-2 rounded-lg">
                       <span className="text-sm font-mono text-gray-700 dark:text-gray-300">

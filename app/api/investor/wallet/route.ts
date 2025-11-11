@@ -1,7 +1,13 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getPrismaClient } from '@/lib/prisma';
 
-export async function GET() {
+/**
+ * GET /api/investor/wallet
+ * 
+ * Busca uma carteira específica por ID (query param)
+ * A seleção é feita apenas no cliente (localStorage), não no banco de dados.
+ */
+export async function GET(request: NextRequest) {
   try {
     const prisma = getPrismaClient();
     if (!prisma) {
@@ -11,43 +17,30 @@ export async function GET() {
       );
     }
 
-    // Busca qualquer carteira ativa (issuer, user, ou admin)
-    // Prioriza user, depois issuer, depois admin
-    const wallet = await prisma.serviceWallet.findFirst({
-      where: { isActive: true },
-      orderBy: [
-        // Prioriza type: user
-        { type: 'asc' }, // 'admin' < 'issuer' < 'user' alfabeticamente, então invertemos a lógica abaixo
-      ],
-    });
+    // Buscar walletId da query string
+    const { searchParams } = new URL(request.url);
+    const walletId = searchParams.get('walletId');
 
-    // Se encontrou, mas queremos priorizar 'user' > 'issuer' > 'admin'
-    // Vamos buscar de forma mais explícita
-    const userWallet = await prisma.serviceWallet.findFirst({
-      where: { type: 'user', isActive: true },
-    });
-
-    const issuerWallet = await prisma.serviceWallet.findFirst({
-      where: { type: 'issuer', isActive: true },
-    });
-
-    const adminWallet = await prisma.serviceWallet.findFirst({
-      where: { type: 'admin', isActive: true },
-    });
-
-    // Prioridade: user > issuer > admin
-    const selectedWallet = userWallet || issuerWallet || adminWallet;
-
-    if (!selectedWallet) {
+    if (!walletId) {
+      // Se não tem walletId, retorna null (nenhuma carteira selecionada)
       return NextResponse.json({ wallet: null });
     }
 
-    const { seedEncrypted, ...sanitized } = selectedWallet;
+    // Busca a carteira específica pelo ID
+    const wallet = await prisma.serviceWallet.findUnique({
+      where: { id: walletId },
+    });
+
+    if (!wallet) {
+      return NextResponse.json({ wallet: null });
+    }
+
+    const { seedEncrypted, ...sanitized } = wallet;
     return NextResponse.json({ wallet: sanitized });
   } catch (error) {
-    console.error('[InvestorWallet][GET] Erro ao obter carteira ativa:', error);
+    console.error('[InvestorWallet][GET] Erro ao obter carteira:', error);
     return NextResponse.json(
-      { error: 'Erro ao obter carteira ativa' },
+      { error: 'Erro ao obter carteira' },
       { status: 500 },
     );
   }
