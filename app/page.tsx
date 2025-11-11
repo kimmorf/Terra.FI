@@ -36,6 +36,7 @@ import {
 } from '@/lib/crossmark/transactions';
 import { registerIssuance } from '@/lib/elysia-client';
 import { getAccountMPTokens, getXRPBalance } from '@/lib/xrpl/account';
+import { MPTokenMetadata } from '@/lib/crossmark/types';
 
 interface AdminProject {
   id: string;
@@ -284,14 +285,14 @@ export default function Home() {
         name: project.name,
         type: project.type,
         purpose: project.purpose,
-        description: project.description,
-        example: project.example,
+        description: project.description ?? undefined,
+        example: project.example ?? undefined,
         minAmount: project.minAmount,
-        maxAmount: project.maxAmount,
+        maxAmount: project.maxAmount ?? undefined,
         targetAmount: project.targetAmount,
         status: project.status,
         generatedAt: new Date().toISOString(),
-      } as Record<string, unknown>;
+      } satisfies MPTokenMetadata;
 
       setIssuanceError(null);
       setIssuanceSuccess(null);

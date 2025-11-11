@@ -1,16 +1,7 @@
 'use client';
 
 import { getCrossmarkSDK } from './sdk';
-
-export interface MPTokenMetadata {
-  name: string;
-  description?: string;
-  purpose?: string;
-  geolocation?: string;
-  legalReference?: string;
-  externalUrl?: string;
-  [key: string]: unknown;
-}
+import type { MPTokenMetadata } from './types';
 
 export interface MPTokenIssuanceParams {
   issuer: string;

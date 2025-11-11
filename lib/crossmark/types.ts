@@ -6,6 +6,16 @@ export interface CrossmarkAccount {
   publicKey?: string;
 }
 
+export interface MPTokenMetadata {
+  name: string;
+  description?: string;
+  purpose?: string;
+  geolocation?: string;
+  legalReference?: string;
+  externalUrl?: string;
+  [key: string]: unknown;
+}
+
 export interface CrossmarkState {
   isInstalled: boolean;
   isConnected: boolean;
