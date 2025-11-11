@@ -4,7 +4,7 @@ import { auth } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
-// GET - Buscar todos os projetos de investimento disponíveis
+// GET - Buscar todos os projetos de investimento disponíveis (público)
 export async function GET(request: NextRequest) {
   try {
     const prisma = getPrismaClient();
@@ -15,17 +15,10 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const session = await auth.api.getSession({
-      headers: request.headers,
-    });
-
-    if (!session) {
-      return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });
-    }
-
+    // Não requer autenticação - qualquer um pode ver os projetos disponíveis
     const projects = await prisma.investmentProject.findMany({
       where: {
-        status: 'active',
+        status: 'published',
       },
       include: {
         _count: {
@@ -81,9 +74,9 @@ export async function POST(request: NextRequest) {
       where: { id: projectId },
     });
 
-    if (!project || project.status !== 'active') {
+    if (!project || project.status !== 'published') {
       return NextResponse.json(
-        { error: 'Projeto não encontrado ou não está ativo' },
+        { error: 'Projeto não encontrado ou não está publicado' },
         { status: 404 }
       );
     }

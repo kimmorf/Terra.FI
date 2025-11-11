@@ -29,6 +29,7 @@ import {
 import Link from 'next/link';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { BackgroundParticles } from '@/components/BackgroundParticles';
+import { InvestmentCard } from '@/components/InvestmentCard';
 import { useSession } from '@/lib/auth-client';
 import { useCrossmarkContext } from '@/lib/crossmark/CrossmarkProvider';
 import {
@@ -70,7 +71,7 @@ const typeColors = {
 };
 
 export default function Home() {
-  const { data: session } = useSession();
+  const { data: session, isPending: isSessionPending } = useSession();
   const {
     isInstalled,
     isConnected,
@@ -84,6 +85,7 @@ export default function Home() {
 
   const [selectedRole, setSelectedRole] =
     useState<'investidor' | 'administrador'>('investidor');
+  const [investorTab, setInvestorTab] = useState<'investments' | 'my-tokens' | 'available-tokens'>('available-tokens');
   const [adminProjects, setAdminProjects] = useState<AdminProject[]>([]);
   const [loadingProjects, setLoadingProjects] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -103,10 +105,14 @@ export default function Home() {
   const [xrpBalance, setXrpBalance] = useState<number | null>(null);
   const [loadingTokens, setLoadingTokens] = useState(false);
   const [tokensError, setTokensError] = useState<string | null>(null);
+  const [availableTokens, setAvailableTokens] = useState<any[]>([]);
+  const [loadingAvailableTokens, setLoadingAvailableTokens] = useState(false);
   const [copied, setCopied] = useState(false);
   const [issuingProjectId, setIssuingProjectId] = useState<string | null>(null);
   const [issuanceSuccess, setIssuanceSuccess] = useState<string | null>(null);
   const [issuanceError, setIssuanceError] = useState<string | null>(null);
+  const [investmentProjects, setInvestmentProjects] = useState<any[]>([]);
+  const [loadingInvestments, setLoadingInvestments] = useState(false);
 
   const loadAccountData = useCallback(async () => {
     if (!account) {
@@ -201,8 +207,116 @@ export default function Home() {
     }
   }, [selectedRole, fetchAdminProjects]);
 
+  const fetchInvestmentProjects = useCallback(async () => {
+    if (!session) {
+      setInvestmentProjects([]);
+      setLoadingInvestments(false);
+      return;
+    }
+    try {
+      setLoadingInvestments(true);
+      const response = await fetch('/api/investments', {
+        credentials: 'include',
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setInvestmentProjects(Array.isArray(data) ? data : []);
+      } else {
+        setInvestmentProjects([]);
+      }
+    } catch (error) {
+      console.error('Erro ao buscar projetos de investimento:', error);
+      setInvestmentProjects([]);
+    } finally {
+      setLoadingInvestments(false);
+    }
+  }, [session]);
+
+  useEffect(() => {
+    if (!isSessionPending && session && investorTab === 'investments') {
+      fetchInvestmentProjects();
+    } else if (!isSessionPending && !session && investorTab === 'investments') {
+      setInvestmentProjects([]);
+      setLoadingInvestments(false);
+    }
+  }, [isSessionPending, session, investorTab, fetchInvestmentProjects]);
+
+  // Ajusta a aba padrão baseado na disponibilidade
+  useEffect(() => {
+    if (!session && investorTab === 'investments') {
+      setInvestorTab('tokens');
+    } else if (session && !isConnected && investorTab === 'tokens') {
+      setInvestorTab('investments');
+    }
+  }, [session, isConnected]);
+
+  // Carrega investimentos disponíveis quando estiver na aba
+  useEffect(() => {
+    if (investorTab === 'available-tokens') {
+      const loadAvailableTokens = async () => {
+        setLoadingAvailableTokens(true);
+        try {
+          const response = await fetch('/api/investments', {
+            credentials: 'include',
+          });
+          if (response.ok) {
+            const projects = await response.json();
+            // Converte projetos para o formato esperado
+            const tokens = projects.map((project: any) => ({
+              id: project.id,
+              currency: project.type,
+              issuer: project.name,
+              name: project.name,
+              purpose: project.purpose,
+              example: project.example,
+              minAmount: project.minAmount,
+              maxAmount: project.maxAmount,
+              targetAmount: project.targetAmount,
+              totalAmount: project.totalAmount,
+            }));
+            setAvailableTokens(tokens);
+          }
+        } catch (error) {
+          console.error('Erro ao carregar investimentos disponíveis:', error);
+        } finally {
+          setLoadingAvailableTokens(false);
+        }
+      };
+      loadAvailableTokens();
+    }
+  }, [investorTab]);
+
+  const handleInvest = useCallback(async (projectId: string, amount: number) => {
+    if (!session) {
+      alert('Você precisa estar logado para investir');
+      return;
+    }
+    try {
+      const response = await fetch('/api/investments', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ projectId, amount }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Erro ao investir');
+      }
+
+      await fetchInvestmentProjects();
+      alert('Investimento realizado com sucesso!');
+    } catch (error: any) {
+      alert(error.message || 'Erro ao realizar investimento');
+      throw error;
+    }
+  }, [session, fetchInvestmentProjects]);
+
   useEffect(() => {
     if (isConnected && account) {
+      // Carrega apenas uma vez quando conecta
       loadAccountData();
     } else {
       setMptokens([]);
@@ -628,124 +742,303 @@ export default function Home() {
                 </div>
               )}
 
-              {isConnected && (
-                <div className="mt-6">
-                  <h3 className="text-lg font-semibold text-gray-800 dark:text-white mb-4">
-                    Seus Tokens MPT
-                  </h3>
-                  {(() => {
-                    if (loadingTokens) {
-                      return (
-                        <div className="flex justify-center py-8">
-                          <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+              {/* Abas do Investidor */}
+              <div className="mt-6">
+                <div className="flex gap-4 mb-6 border-b border-gray-200 dark:border-gray-700">
+                    <button
+                      onClick={() => setInvestorTab('available-tokens')}
+                      className={`px-4 py-2 font-semibold transition-all duration-300 border-b-2 ${
+                        investorTab === 'available-tokens'
+                          ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
+                          : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <TrendingUp className="w-5 h-5" />
+                        Investimentos
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => setInvestorTab('my-tokens')}
+                      className={`px-4 py-2 font-semibold transition-all duration-300 border-b-2 ${
+                        investorTab === 'my-tokens'
+                          ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
+                          : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Coins className="w-5 h-5" />
+                        Meus Tokens
+                      </div>
+                    </button>
+                    {session && (
+                      <button
+                        onClick={() => setInvestorTab('investments')}
+                        className={`px-4 py-2 font-semibold transition-all duration-300 border-b-2 ${
+                          investorTab === 'investments'
+                            ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
+                            : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <TrendingUp className="w-5 h-5" />
+                          Meus Investimentos
                         </div>
-                      );
-                    }
+                      </button>
+                    )}
+                </div>
 
-                    if (tokensError) {
-                      return (
-                        <div className="flex items-start gap-3 p-4 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-700 rounded-lg text-red-700 dark:text-red-300">
-                          <AlertCircle className="w-5 h-5 mt-1" />
-                          <p className="text-sm">{tokensError}</p>
+                {/* Conteúdo da aba Investimentos */}
+                {investorTab === 'investments' && (
+                  <div>
+                    {isSessionPending ? (
+                      <div className="flex justify-center py-12">
+                        <div className="text-center">
+                          <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+                          <p className="text-gray-600 dark:text-gray-300">Verificando autenticação...</p>
                         </div>
-                      );
-                    }
+                      </div>
+                    ) : !session ? (
+                      <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-xl p-8 text-center">
+                        <Info className="w-12 h-12 text-blue-500 dark:text-blue-400 mx-auto mb-4" />
+                        <p className="text-blue-700 dark:text-blue-300 text-lg mb-4">
+                          Você precisa estar logado para ver os projetos de investimento.
+                        </p>
+                        <Link
+                          href="/auth/signin"
+                          className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold transition-all duration-300"
+                        >
+                          Fazer Login
+                          <ArrowRight className="w-5 h-5" />
+                        </Link>
+                      </div>
+                    ) : loadingInvestments ? (
+                      <div className="flex justify-center py-12">
+                        <div className="text-center">
+                          <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+                          <p className="text-gray-600 dark:text-gray-300">Carregando projetos de investimento...</p>
+                        </div>
+                      </div>
+                    ) : investmentProjects.length === 0 ? (
+                      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-12 text-center border border-gray-200 dark:border-gray-700">
+                        <TrendingUp className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                        <p className="text-gray-600 dark:text-gray-300 text-lg mb-4">
+                          Nenhum projeto de investimento disponível no momento.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {investmentProjects.map((project) => (
+                          <InvestmentCard
+                            key={project.id}
+                            project={project}
+                            onInvest={handleInvest}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
 
-                    if (mptokens.length > 0) {
-                      return (
-                        <div className="space-y-3">
-                          {mptokens.map((token, index) => (
-                            <div
-                              key={`${token.currency}-${token.issuer}-${index}`}
-                              className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-600"
-                            >
-                              <div className="flex justify-between items-center">
-                                <div>
-                                  <p className="font-semibold text-gray-800 dark:text-white">
-                                    {token.currency}
-                                  </p>
-                                  <p className="text-sm text-gray-500 dark:text-gray-400">
-                                    {token.issuer}
-                                  </p>
-                                </div>
-                                <p className="text-lg font-bold text-blue-600 dark:text-blue-400">
-                                  {parseFloat(token.balance).toLocaleString('pt-BR', {
-                                    minimumFractionDigits: 2,
-                                    maximumFractionDigits: 6,
-                                  })}
+                {/* Conteúdo da aba Meus Tokens */}
+                {investorTab === 'my-tokens' && (
+                  <div>
+                    {!isConnected ? (
+                      <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                        <Coins className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                        <p>Conecte sua carteira para ver seus tokens</p>
+                      </div>
+                    ) : loadingTokens ? (
+                      <div className="flex justify-center py-8">
+                        <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                      </div>
+                    ) : tokensError ? (
+                      <div className="flex items-start gap-3 p-4 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-700 rounded-lg text-red-700 dark:text-red-300">
+                        <AlertCircle className="w-5 h-5 mt-1" />
+                        <p className="text-sm">{tokensError}</p>
+                      </div>
+                    ) : mptokens.length > 0 ? (
+                      <div className="space-y-3">
+                        {mptokens.map((token, index) => (
+                          <div
+                            key={`${token.currency}-${token.issuer}-${index}`}
+                            className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-600"
+                          >
+                            <div className="flex justify-between items-center">
+                              <div>
+                                <p className="font-semibold text-gray-800 dark:text-white">
+                                  {token.currency}
+                                </p>
+                                <p className="text-sm text-gray-500 dark:text-gray-400">
+                                  {token.issuer}
                                 </p>
                               </div>
+                              <p className="text-lg font-bold text-blue-600 dark:text-blue-400">
+                                {parseFloat(token.balance).toLocaleString('pt-BR', {
+                                  minimumFractionDigits: 2,
+                                  maximumFractionDigits: 6,
+                                })}
+                              </p>
                             </div>
-                          ))}
-                        </div>
-                      );
-                    }
-
-                    if (!noTokensDismissed) {
-                      return (
-                        <div className="text-center py-8 text-gray-500 dark:text-gray-400 space-y-4">
-                          <div>
-                            <Coins className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                            <p>Nenhum token MPT encontrado.</p>
-                            <p className="text-sm text-gray-400 dark:text-gray-500">
-                              Assim que você receber ou emitir um MPT, ele aparecerá aqui.
-                            </p>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => setNoTokensDismissed(true)}
-                            className="inline-flex items-center px-4 py-2 text-sm font-semibold rounded-full bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-100 hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors"
-                          >
-                            Entendi
-                          </button>
-                        </div>
-                      );
-                    }
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                        <Coins className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                        <p>Nenhum token MPT encontrado</p>
+                      </div>
+                    )}
+                  </div>
+                )}
 
-                    return null;
-                  })()}
+                {/* Conteúdo da aba Investimentos Disponíveis */}
+                {investorTab === 'available-tokens' && (
+                  <div>
+                    {loadingAvailableTokens ? (
+                      <div className="flex justify-center py-12">
+                        <div className="text-center">
+                          <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+                          <p className="text-gray-600 dark:text-gray-300">Carregando investimentos disponíveis...</p>
+                        </div>
+                      </div>
+                    ) : availableTokens.length > 0 ? (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {availableTokens.map((project, index) => {
+                          const Icon = typeIcons[project.currency as keyof typeof typeIcons] || TrendingUp;
+                          const colorClass = typeColors[project.currency as keyof typeof typeColors] || 'from-blue-400 to-blue-600';
+                          
+                          return (
+                            <motion.div
+                              key={project.id || `${project.currency}-${project.issuer}-${index}`}
+                              initial={{ opacity: 0, y: 20 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              transition={{ duration: 0.5, delay: index * 0.1 }}
+                              whileHover={{ scale: 1.02, y: -5 }}
+                              className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-6 border border-gray-200 dark:border-gray-700 hover:shadow-2xl transition-all duration-300"
+                            >
+                              <div className="flex items-start gap-4 mb-4">
+                                <div className={`p-3 bg-gradient-to-br ${colorClass} rounded-xl`}>
+                                  <Icon className="w-8 h-8 text-white" />
+                                </div>
+                                <div className="flex-1">
+                                  <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-1">
+                                    {project.name}
+                                  </h3>
+                                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                                    {project.purpose}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="space-y-3 mb-6">
+                                <div>
+                                  <p className="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-1">
+                                    Propósito:
+                                  </p>
+                                  <p className="text-gray-700 dark:text-gray-200">
+                                    {project.purpose}
+                                  </p>
+                                </div>
+                                {project.example && (
+                                  <div>
+                                    <p className="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-1">
+                                      Exemplo:
+                                    </p>
+                                    <p className="text-gray-700 dark:text-gray-200">
+                                      {project.example}
+                                    </p>
+                                  </div>
+                                )}
+                                <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
+                                  <div className="flex justify-between text-sm mb-2">
+                                    <span className="text-gray-600 dark:text-gray-300">
+                                      Arrecadado: R$ {project.totalAmount?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                    </span>
+                                    <span className="text-gray-600 dark:text-gray-300">
+                                      Meta: R$ {project.targetAmount?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                    </span>
+                                  </div>
+                                  <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                                    <div
+                                      className="bg-gradient-to-r from-blue-500 to-purple-500 h-2 rounded-full"
+                                      style={{ width: `${Math.min((project.totalAmount / project.targetAmount) * 100, 100)}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                              <motion.button
+                                whileHover={{ scale: 1.05 }}
+                                whileTap={{ scale: 0.95 }}
+                                onClick={() => handleInvest(project.id || '', project.minAmount || 0)}
+                                disabled={!session}
+                                className="w-full px-4 py-3 bg-green-500 hover:bg-green-600 dark:bg-green-600 dark:hover:bg-green-700 text-white rounded-xl font-semibold transition-all duration-300 flex items-center justify-center gap-2 shadow-md hover:shadow-lg disabled:opacity-60 disabled:cursor-not-allowed"
+                              >
+                                {!session ? (
+                                  'Fazer Login para Investir'
+                                ) : (
+                                  <>
+                                    Investir em {project.name}
+                                    <ArrowRight className="w-5 h-5" />
+                                  </>
+                                )}
+                              </motion.button>
+                            </motion.div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-12 text-center border border-gray-200 dark:border-gray-700">
+                        <TrendingUp className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                        <p className="text-gray-600 dark:text-gray-300 text-lg mb-4">
+                          Nenhum investimento disponível no momento.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Animated Wallet Icon - só aparece quando não está logado nem conectado */}
+              {!session && !isConnected && (
+                <div className="mt-8 flex justify-center">
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: 0.5, type: 'spring', stiffness: 100 }}
+                    className="w-64 h-64 relative flex items-center justify-center"
+                  >
+                    <div className="absolute inset-0 bg-gradient-to-r from-blue-400/20 to-purple-400/20 rounded-full blur-2xl animate-pulse" />
+                    <motion.div
+                      animate={{
+                        rotate: [0, 10, -10, 10, -10, 0],
+                        scale: [1, 1.1, 1],
+                      }}
+                      transition={{
+                        duration: 2,
+                        repeat: Infinity,
+                        ease: 'easeInOut',
+                      }}
+                      className="relative z-10"
+                    >
+                      <Wallet className="w-32 h-32 text-blue-600 dark:text-blue-400" />
+                    </motion.div>
+                    <motion.div
+                      animate={{
+                        rotate: 360,
+                      }}
+                      transition={{
+                        duration: 20,
+                        repeat: Infinity,
+                        ease: 'linear',
+                      }}
+                      className="absolute inset-0 flex items-center justify-center"
+                    >
+                      <Coins className="w-16 h-16 text-yellow-500/30 dark:text-yellow-400/30 absolute -top-4 -right-4" />
+                      <Zap className="w-12 h-12 text-purple-500/30 dark:text-purple-400/30 absolute -bottom-4 -left-4" />
+                    </motion.div>
+                  </motion.div>
                 </div>
               )}
-
-              {/* Animated Wallet Icon */}
-              <div className="mt-8 flex justify-center">
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.8 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ delay: 0.5, type: 'spring', stiffness: 100 }}
-                  className="w-64 h-64 relative flex items-center justify-center"
-                >
-                  <div className="absolute inset-0 bg-gradient-to-r from-blue-400/20 to-purple-400/20 rounded-full blur-2xl animate-pulse" />
-                  <motion.div
-                    animate={{
-                      rotate: [0, 10, -10, 10, -10, 0],
-                      scale: [1, 1.1, 1],
-                    }}
-                    transition={{
-                      duration: 2,
-                      repeat: Infinity,
-                      ease: 'easeInOut',
-                    }}
-                    className="relative z-10"
-                  >
-                    <Wallet className="w-32 h-32 text-blue-600 dark:text-blue-400" />
-                  </motion.div>
-                  <motion.div
-                    animate={{
-                      rotate: 360,
-                    }}
-                    transition={{
-                      duration: 20,
-                      repeat: Infinity,
-                      ease: 'linear',
-                    }}
-                    className="absolute inset-0 flex items-center justify-center"
-                  >
-                    <Coins className="w-16 h-16 text-yellow-500/30 dark:text-yellow-400/30 absolute -top-4 -right-4" />
-                    <Zap className="w-12 h-12 text-purple-500/30 dark:text-purple-400/30 absolute -bottom-4 -left-4" />
-                  </motion.div>
-                </motion.div>
-              </div>
             </div>
 
             {/* Getting Started Section */}
