@@ -24,7 +24,10 @@ export async function GET(request: NextRequest) {
       },
       include: {
         _count: {
-          select: { investments: true },
+          select: { 
+            investments: true,
+            files: true,
+          },
         },
       },
       orderBy: {

@@ -324,7 +324,7 @@ export default function TradeTokensPage() {
                     `Alternativas:\n` +
                     `• Use xumm.app ou xrptoolkit.com para criar a trustline\n` +
                     `• Ou aguarde uma atualização da Crossmark\n\n` +
-                    `Token: ${selectedStable.currency} (${selectedStable.name})`
+                    `Token: ${selectedStable.currency} (${selectedStable.label})`
                 );
             } else {
                 setPurchaseError(errorMessage);

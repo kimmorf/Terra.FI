@@ -110,7 +110,7 @@ export async function POST(request: NextRequest) {
     const result = await rs.submitAndWait(signed.tx_blob);
 
     // Verificar resultado
-    const transactionResult = result.result.meta?.TransactionResult || result.result.engine_result;
+    const transactionResult = result.result.meta?.TransactionResult || (result.result as any).engine_result;
     if (transactionResult && !transactionResult.startsWith('tes')) {
       return NextResponse.json(
         { 

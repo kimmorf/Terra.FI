@@ -11,9 +11,12 @@ export interface SubmissionResult {
     tx_json?: {
       hash?: string;
     };
+    hash?: string;
     meta?: {
       TransactionResult?: string;
     };
+    engine_result?: string;
+    validated?: boolean;
   };
 }
 
