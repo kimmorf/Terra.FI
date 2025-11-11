@@ -179,22 +179,6 @@ export default function Home() {
     return `${address.slice(0, 8)}...${address.slice(-8)}`;
   }, []);
 
-  useEffect(() => {
-    if (selectedRole === 'administrador') {
-      fetchAdminProjects();
-    }
-  }, [selectedRole, fetchAdminProjects]);
-
-  useEffect(() => {
-    if (isConnected && account) {
-      loadAccountData();
-    } else {
-      setMptokens([]);
-      setXrpBalance(null);
-      setTokensError(null);
-    }
-  }, [isConnected, account, loadAccountData]);
-
   const fetchAdminProjects = useCallback(async () => {
     try {
       setLoadingProjects(true);
@@ -211,6 +195,22 @@ export default function Home() {
       setLoadingProjects(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (selectedRole === 'administrador') {
+      fetchAdminProjects();
+    }
+  }, [selectedRole, fetchAdminProjects]);
+
+  useEffect(() => {
+    if (isConnected && account) {
+      loadAccountData();
+    } else {
+      setMptokens([]);
+      setXrpBalance(null);
+      setTokensError(null);
+    }
+  }, [isConnected, account, loadAccountData]);
 
   const handleCreateProject = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
