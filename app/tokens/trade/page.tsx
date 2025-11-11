@@ -64,6 +64,15 @@ export default function TradeTokensPage() {
         TOKEN_PRESETS.find((token) => token.id === purchaseProject)?.issuerAddress ?? '',
     );
 
+    const extractHash = (response: any) =>
+        response?.hash ??
+        response?.result?.hash ??
+        response?.result?.tx_json?.hash ??
+        response?.tx_json?.hash ??
+        response?.response?.hash ??
+        response?.response?.result?.hash ??
+        null;
+
     useEffect(() => {
         let cancelled = false;
         async function loadStatus() {
@@ -494,9 +503,7 @@ export default function TradeTokensPage() {
                             </p>
                             <select
                                 value={purchaseProject}
-                                onChange={(event) =>
-                                    setPurchaseProject(event.target.value as TokenPreset['id'])
-                                }
+                                onChange={(event) => setPurchaseProject(event.target.value as TokenPreset['id'])}
                                 className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
                             >
                                 {TOKEN_PRESETS.map((preset) => (
