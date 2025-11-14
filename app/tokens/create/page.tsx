@@ -823,7 +823,7 @@ export default function TokenFactoryPage() {
                                             {!isConnected && (
                                                 <li className="flex items-center gap-2">
                                                     <AlertCircle className="w-4 h-4" />
-                                                    <span>Crossmark não conectada - Clique em "Conectar Crossmark" acima</span>
+                                                    <span>Crossmark não conectada - Clique em &quot;Conectar Crossmark&quot; acima</span>
                                                 </li>
                                             )}
                                             {!selectedPreset && (

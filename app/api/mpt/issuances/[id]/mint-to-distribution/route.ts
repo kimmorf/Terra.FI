@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getPrismaClient } from '@/lib/prisma';
 import { decryptSecret } from '@/lib/utils/crypto';
 import { xrplPool, type XRPLNetwork } from '@/lib/xrpl/pool';
+
+export const runtime = 'nodejs';
 import { ReliableSubmission } from '@/lib/xrpl/reliable-submission';
 import { Wallet } from 'xrpl';
 import { MintToDistributionSchema } from '@/lib/mpt/dto/mint-to-distribution.dto';
@@ -140,7 +142,7 @@ export async function POST(
 
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { error: 'Dados inválidos', details: error.errors },
+        { error: 'Dados inválidos', details: error.issues },
         { status: 400 }
       );
     }

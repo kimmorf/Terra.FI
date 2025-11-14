@@ -5,6 +5,7 @@ import { createMPT } from '@/lib/xrpl/mpt-helpers';
 import { CreateIssuanceSchema } from '@/lib/mpt/dto/create-issuance.dto';
 import { createDistributionWallet } from '@/lib/mpt/distribution-wallet.service';
 import { z } from 'zod';
+import type { MPTokenMetadata } from '@/lib/crossmark/types';
 
 /**
  * POST /api/mpt/issuances
@@ -77,7 +78,9 @@ export async function POST(request: NextRequest) {
 
     // 3. Preparar metadata
     const tokenType = validated.type.toLowerCase() as 'land' | 'build' | 'rev' | 'col';
-    const metadata = validated.metadata || {};
+    const metadata: MPTokenMetadata | undefined = validated.metadata && typeof validated.metadata.name === 'string'
+      ? (validated.metadata as MPTokenMetadata)
+      : undefined;
 
     // 4. Preparar flags
     const flags: any = {};
@@ -119,7 +122,7 @@ export async function POST(request: NextRequest) {
         xrplIssuanceId: result.mptokenIssuanceID,
         xrplCurrency: result.currency || null,
         issuanceTxHash: result.txHash,
-        metadataJson: metadata,
+        metadataJson: metadata as any,
         flags: flags,
         network: validated.network,
         status: 'CREATED',
@@ -164,7 +167,7 @@ export async function POST(request: NextRequest) {
     
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { error: 'Dados inválidos', details: error.errors },
+        { error: 'Dados inválidos', details: error.issues },
         { status: 400 }
       );
     }
