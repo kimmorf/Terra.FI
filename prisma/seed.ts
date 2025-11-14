@@ -2,6 +2,8 @@ import { PrismaClient } from '@prisma/client';
 import { readdir, readFile, mkdir, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
+import { Wallet } from 'xrpl';
+import { encryptSecret } from './../lib/utils/crypto';
 
 const prisma = new PrismaClient();
 
@@ -106,8 +108,51 @@ async function uploadProjectFiles(projectId: string, projectType: string) {
   }
 }
 
+async function createServiceWallets() {
+  console.log('💼 Criando carteiras de serviço...');
+
+  // Verificar se já existe uma carteira ISSUER ativa
+  const existingIssuer = await prisma.serviceWallet.findFirst({
+    where: {
+      type: 'ISSUER',
+      isActive: true,
+      network: 'testnet',
+    },
+  });
+
+  if (existingIssuer) {
+    console.log(`✅ Carteira ISSUER já existe: ${existingIssuer.label} (${existingIssuer.address})`);
+    return existingIssuer;
+  }
+
+  // Criar carteira ISSUER para testes
+  const issuerWallet = Wallet.generate();
+  const issuerEncryptedSeed = encryptSecret(issuerWallet.seed!);
+
+  const issuer = await prisma.serviceWallet.create({
+    data: {
+      label: 'TerraFi Main Issuer (Seed)',
+      type: 'ISSUER',
+      network: 'testnet',
+      address: issuerWallet.classicAddress,
+      publicKey: issuerWallet.publicKey,
+      seedEncrypted: issuerEncryptedSeed,
+      isActive: true,
+    },
+  });
+
+  console.log(`✅ Carteira ISSUER criada: ${issuer.label} (${issuer.address})`);
+  console.log(`   ⚠️  IMPORTANTE: Esta carteira precisa ser financiada na testnet para funcionar`);
+  console.log(`   💡 Use o faucet: https://xrpl.org/xrp-testnet-faucet.html`);
+
+  return issuer;
+}
+
 async function main() {
   console.log('🌱 Iniciando seed do banco de dados...');
+
+  // Criar carteiras de serviço primeiro (necessárias para MPT)
+  const issuerWallet = await createServiceWallets();
 
   // Limpar todos os projetos existentes (e seus arquivos serão deletados em cascade)
   const existingProjects = await prisma.investmentProject.findMany();

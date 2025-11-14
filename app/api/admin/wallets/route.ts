@@ -51,11 +51,70 @@ export async function POST(request: NextRequest) {
       network = 'testnet',
       seed,
       fund = true,
+      userId, // Para carteiras USER_INTERNAL
+      isActive = false, // Por padrão, novas carteiras não são ativas
     } = body;
 
     if (!label || typeof label !== 'string') {
       return NextResponse.json(
         { error: 'label é obrigatório e deve ser uma string' },
+        { status: 400 },
+      );
+    }
+
+    // Validar e normalizar tipo de carteira
+    const validTypes = ['ISSUER', 'DISTRIBUTION', 'USER_INTERNAL', 'USER_EXTERNAL'];
+    const normalizedType = type.toUpperCase();
+    
+    // Mapear tipos antigos para novos (compatibilidade)
+    const typeMapping: Record<string, string> = {
+      'ISSUER': 'ISSUER',
+      'DISTRIBUTION': 'DISTRIBUTION',
+      'USER_INTERNAL': 'USER_INTERNAL',
+      'USER_EXTERNAL': 'USER_EXTERNAL',
+      'issuer': 'ISSUER',
+      'distribution': 'DISTRIBUTION',
+      'user_internal': 'USER_INTERNAL',
+      'user_external': 'USER_EXTERNAL',
+    };
+    
+    const finalType = typeMapping[normalizedType] || normalizedType;
+    
+    if (!validTypes.includes(finalType)) {
+      return NextResponse.json(
+        { error: `type inválido. Use: ISSUER, DISTRIBUTION, USER_INTERNAL ou USER_EXTERNAL` },
+        { status: 400 },
+      );
+    }
+
+    // Validar userId para carteiras USER_INTERNAL
+    if (finalType === 'USER_INTERNAL' && !userId) {
+      return NextResponse.json(
+        { error: 'userId é obrigatório para carteiras do tipo USER_INTERNAL' },
+        { status: 400 },
+      );
+    }
+    
+    // Verificar se userId existe no banco (se fornecido)
+    if (userId) {
+      const userExists = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true },
+      });
+      
+      if (!userExists) {
+        return NextResponse.json(
+          { error: 'userId não encontrado no banco de dados' },
+          { status: 404 },
+        );
+      }
+    }
+
+    // Validar network
+    const validNetworks = ['testnet', 'mainnet', 'devnet'];
+    if (!validNetworks.includes(network)) {
+      return NextResponse.json(
+        { error: `network inválido. Use: testnet, mainnet ou devnet` },
         { status: 400 },
       );
     }
@@ -107,15 +166,33 @@ export async function POST(request: NextRequest) {
 
     const encryptedSeed = encryptSecret(seedToStore);
 
+    // Usar classicAddress para garantir compatibilidade
+    const walletAddress = wallet.classicAddress || wallet.address;
+    
+    // Verificar se o endereço já existe
+    const existingWallet = await prisma.serviceWallet.findUnique({
+      where: { address: walletAddress },
+      select: { id: true },
+    });
+    
+    if (existingWallet) {
+      return NextResponse.json(
+        { error: 'Uma carteira com este endereço já existe' },
+        { status: 409 },
+      );
+    }
+
     const created = await prisma.serviceWallet.create({
       data: {
         label,
         document: document || null,
-        type,
+        type: finalType, // Usar tipo normalizado e validado
         network,
-        address: wallet.address,
+        address: walletAddress, // Usar classicAddress
         publicKey: wallet.publicKey,
         seedEncrypted: encryptedSeed,
+        userId: userId || null, // Salvar userId se fornecido
+        isActive: isActive || false, // Salvar isActive
       },
     });
 

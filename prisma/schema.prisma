@@ -243,19 +243,26 @@ model IssuerPermission {
 }
 
 model ServiceWallet {
-  id             String   @id @default(cuid())
-  label          String
-  document       String?
-  type           String   @default("issuer")
-  network        String   @default("testnet")
-  address        String   @unique
-  publicKey      String?
-  seedEncrypted  String
-  isActive       Boolean  @default(false)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id            String   @id @default(cuid())
+  label         String
+  document      String?
+  type          String   @default("issuer") // ISSUER | DISTRIBUTION | USER_INTERNAL | USER_EXTERNAL
+  network       String   @default("testnet")
+  address       String   @unique
+  publicKey     String?
+  seedEncrypted String
+  isActive      Boolean  @default(false)
+  userId        String? // Para carteiras de usuário (USER_INTERNAL)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relações
+  issuedMPTs       MPTIssuance[]      @relation("IssuerWallet")
+  distributionMPTs MPTIssuance[]      @relation("DistributionWallet")
+  authorizations   MPTAuthorization[]
 
   @@index([type, isActive])
+  @@index([userId])
 }
 
 // Purchase Flow - Compra Primária com Idempotência
@@ -326,4 +333,80 @@ model CircuitBreakerState {
   updatedAt    DateTime  @updatedAt
 
   @@index([state])
+}
+
+// MPT Issuances - Emissões de Multi-Purpose Tokens
+model MPTIssuance {
+  id            String @id @default(cuid())
+  type          String // LAND | BUILD | REV | COL
+  symbol        String // Ex: "LAND-ITA-001"
+  name          String // Ex: "Viverde Itaipu LAND"
+  maximumAmount String @db.Text // Quantidade máxima (string para precisão)
+  decimals      Int    @default(0)
+  assetScale    Int    @default(0)
+  transferFee   Int    @default(0) // Basis points (0-50000)
+
+  // Wallets
+  issuerWalletId       String
+  distributionWalletId String?
+
+  // XRPL On-chain
+  xrplIssuanceId String? @unique // MPTokenIssuanceID (hex)
+  xrplCurrency   String? // Currency gerado automaticamente pelo XRPL
+  issuanceTxHash String? @unique
+
+  // Metadata
+  metadataJson Json @default("{}")
+  flags        Json @default("{}") // Flags do MPT
+
+  // Estado
+  network String @default("testnet")
+  status  String @default("CREATED") // CREATED | MINTED | ACTIVE | PAUSED
+
+  // Supply tracking
+  totalMinted         String @default("0") @db.Text
+  distributionBalance String @default("0") @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relações
+  issuerWallet       ServiceWallet      @relation("IssuerWallet", fields: [issuerWalletId], references: [id])
+  distributionWallet ServiceWallet?     @relation("DistributionWallet", fields: [distributionWalletId], references: [id])
+  authorizations     MPTAuthorization[]
+
+  @@index([type])
+  @@index([symbol])
+  @@index([issuerWalletId])
+  @@index([distributionWalletId])
+  @@index([xrplIssuanceId])
+  @@index([status])
+  @@index([network])
+}
+
+// MPT Authorizations - Autorizações para receber MPT
+model MPTAuthorization {
+  id                     String   @id @default(cuid())
+  issuanceId             String
+  walletId               String? // Para carteiras internas (USER_INTERNAL)
+  walletAddress          String // Endereço XRPL (para Crossmark ou internas)
+  walletType             String // "crossmark" | "internal"
+  status                 String   @default("PENDING") // PENDING | AUTHORIZED | REJECTED
+  authorizationTxHash    String?  @unique
+  authorizationRequestId String?  @unique // Para rastrear autorizações pendentes do Crossmark
+  network                String   @default("testnet")
+  metadata               Json     @default("{}")
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  // Relações
+  issuance MPTIssuance    @relation(fields: [issuanceId], references: [id], onDelete: Cascade)
+  wallet   ServiceWallet? @relation(fields: [walletId], references: [id])
+
+  @@unique([issuanceId, walletAddress]) // Uma autorização por wallet por MPT
+  @@index([issuanceId])
+  @@index([walletAddress])
+  @@index([walletId])
+  @@index([status])
+  @@index([authorizationRequestId])
 }
