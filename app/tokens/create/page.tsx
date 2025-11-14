@@ -233,7 +233,9 @@ export default function TokenFactoryPage() {
         }
 
         const config = TOKEN_CONFIG[selectedPreset.id];
-        const baseUnits = convertToBaseUnits(supply, config.decimals);
+        // Usar supply informado ou valor padrão do preset
+        const supplyToUse = supply.trim() || selectedPreset.defaultSupply || '0';
+        const baseUnits = convertToBaseUnits(supplyToUse, config.decimals);
 
         if (!baseUnits) {
             setIssuanceError(
@@ -632,7 +634,7 @@ export default function TokenFactoryPage() {
                                     </div>
                                     <div className="space-y-2">
                                         <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-                                            Supply a emitir ({TOKEN_CONFIG[selectedTokenId]?.decimals} casas decimais)
+                                            Supply a emitir ({TOKEN_CONFIG[selectedTokenId]?.decimals} casas decimais) <span className="text-gray-400 font-normal text-xs">(opcional)</span>
                                         </label>
                                         <input
                                             value={supply}
@@ -640,6 +642,9 @@ export default function TokenFactoryPage() {
                                             placeholder={selectedPreset?.defaultSupply}
                                             className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                         />
+                                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                                            Se não informado, será usado o valor padrão do tipo de token ({selectedPreset?.defaultSupply || '0'}).
+                                        </p>
                                     </div>
                                 </div>
 
@@ -808,9 +813,50 @@ export default function TokenFactoryPage() {
                                     </div>
                                 )}
 
+                                {/* Debug: Mostrar por que o botão está desabilitado */}
+                                {(!isConnected || !selectedPreset || !tokenName.trim()) && (
+                                    <div className="p-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 rounded-xl">
+                                        <p className="text-sm font-semibold text-yellow-800 dark:text-yellow-300 mb-2">
+                                            ⚠️ Botão desabilitado - Verifique:
+                                        </p>
+                                        <ul className="text-xs text-yellow-700 dark:text-yellow-400 space-y-1">
+                                            {!isConnected && (
+                                                <li className="flex items-center gap-2">
+                                                    <AlertCircle className="w-4 h-4" />
+                                                    <span>Crossmark não conectada - Clique em "Conectar Crossmark" acima</span>
+                                                </li>
+                                            )}
+                                            {!selectedPreset && (
+                                                <li className="flex items-center gap-2">
+                                                    <AlertCircle className="w-4 h-4" />
+                                                    <span>Tipo de token não selecionado</span>
+                                                </li>
+                                            )}
+                                            {!tokenName.trim() && (
+                                                <li className="flex items-center gap-2">
+                                                    <AlertCircle className="w-4 h-4" />
+                                                    <span>Nome do token não preenchido</span>
+                                                </li>
+                                            )}
+                                        </ul>
+                                        <p className="text-xs text-yellow-600 dark:text-yellow-500 mt-3 pt-3 border-t border-yellow-200 dark:border-yellow-700">
+                                            💡 <strong>Dica:</strong> Se você criou uma carteira ServiceWallet no banco, use a página{' '}
+                                            <Link href="/admin/mpt" className="underline font-semibold">
+                                                /admin/mpt
+                                            </Link>
+                                            {' '}ao invés desta.
+                                        </p>
+                                    </div>
+                                )}
+
                                 <button
                                     onClick={handleIssueToken}
-                                    disabled={isIssuing || !isConnected}
+                                    disabled={
+                                        isIssuing ||
+                                        !isConnected ||
+                                        !selectedPreset ||
+                                        !tokenName.trim()
+                                    }
                                     className="w-full px-6 py-4 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl font-semibold text-lg shadow-lg hover:shadow-xl transition-all duration-300 flex items-center justify-center gap-3 disabled:opacity-60 disabled:cursor-not-allowed"
                                 >
                                     {isIssuing ? (

@@ -409,7 +409,7 @@ export default function AdminMPTPage() {
                 <div className="space-y-6">
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-                      Tipo de Token
+                      Tipo de Token *
                     </label>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                       {TOKEN_PRESETS.map((preset) => (
@@ -448,7 +448,7 @@ export default function AdminMPTPage() {
                     </div>
                     <div>
                       <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-                        Supply ({selectedPreset ? TOKEN_CONFIG[selectedPreset.id].decimals : 0} decimais)
+                        Supply ({selectedPreset ? TOKEN_CONFIG[selectedPreset.id].decimals : 0} decimais) <span className="text-gray-400 font-normal text-xs">(opcional)</span>
                       </label>
                       <input
                         type="text"
@@ -457,6 +457,9 @@ export default function AdminMPTPage() {
                         placeholder={selectedPreset?.defaultSupply || '0'}
                         className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800"
                       />
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        Se não informado, será usado o valor padrão do tipo de token.
+                      </p>
                     </div>
                   </div>
 
@@ -476,7 +479,12 @@ export default function AdminMPTPage() {
 
                   <button
                     onClick={handleEmit}
-                    disabled={issueLoading || !selectedWallet}
+                    disabled={
+                      issueLoading ||
+                      !selectedWallet ||
+                      !selectedPreset ||
+                      !tokenName.trim()
+                    }
                     className="w-full px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl font-semibold shadow-lg hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
                     {issueLoading ? (
