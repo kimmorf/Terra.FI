@@ -28,11 +28,14 @@ import {
   FileText,
   Upload,
   KeyRound,
+  ExternalLink,
+  Layers,
 } from 'lucide-react';
 import Link from 'next/link';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { BackgroundParticles } from '@/components/BackgroundParticles';
 import { InvestmentCard } from '@/components/InvestmentCard';
+import { WalletSelector } from '@/components/WalletSelector';
 import { useSession } from '@/lib/auth-client';
 import { useCrossmarkContext } from '@/lib/crossmark/CrossmarkProvider';
 import {
@@ -127,7 +130,9 @@ export default function Home() {
   const [loadingInvestments, setLoadingInvestments] = useState(false);
   const [adminInvestments, setAdminInvestments] = useState<any[]>([]);
   const [loadingAdminInvestments, setLoadingAdminInvestments] = useState(false);
-  const [adminTab, setAdminTab] = useState<'projects' | 'investments'>('projects');
+  const [adminTab, setAdminTab] = useState<'projects' | 'investments' | 'mpts'>('projects');
+  const [mptIssuances, setMptIssuances] = useState<any[]>([]);
+  const [loadingMptIssuances, setLoadingMptIssuances] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [selectedProjectForUpload, setSelectedProjectForUpload] = useState<string | null>(null);
   const [uploadingFile, setUploadingFile] = useState(false);
@@ -407,14 +412,33 @@ export default function Home() {
     }
   }, [isConnected, account, fetchAdminInvestments, fetchAdminProjects]);
 
+  const fetchMptIssuances = useCallback(async () => {
+    try {
+      setLoadingMptIssuances(true);
+      const response = await fetch('/api/mpt/issuances');
+      if (response.ok) {
+        const data = await response.json();
+        setMptIssuances(data.issuances || []);
+      }
+    } catch (error) {
+      console.error('Erro ao buscar MPTs:', error);
+      setMptIssuances([]);
+    } finally {
+      setLoadingMptIssuances(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (selectedRole === 'administrador') {
       fetchAdminProjects();
       if (adminTab === 'investments') {
         fetchAdminInvestments();
       }
+      if (adminTab === 'mpts') {
+        fetchMptIssuances();
+      }
     }
-  }, [selectedRole, adminTab, fetchAdminProjects, fetchAdminInvestments]);
+  }, [selectedRole, adminTab, fetchAdminProjects, fetchAdminInvestments, fetchMptIssuances]);
 
   const fetchInvestmentProjects = useCallback(async () => {
     if (!session) {
@@ -933,7 +957,12 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-100 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 transition-colors duration-300 relative overflow-hidden">
       <BackgroundParticles />
-      <ThemeToggle />
+      
+      {/* Header com Wallet e Theme Toggle */}
+      <div className="fixed top-4 right-4 z-50 flex items-center gap-3">
+        <WalletSelector />
+        <ThemeToggle />
+      </div>
 
       <div className="container mx-auto px-4 py-8 md:py-12">
         {/* Header */}
@@ -1612,7 +1641,7 @@ export default function Home() {
             </motion.div>
 
             {/* Tabs do Admin */}
-            <div className="flex gap-4 mb-6 border-b border-gray-200 dark:border-gray-700">
+            <div className="flex flex-wrap gap-2 md:gap-4 mb-6 border-b border-gray-200 dark:border-gray-700">
               <button
                 onClick={() => setAdminTab('projects')}
                 className={`px-4 py-2 font-semibold transition-all duration-300 border-b-2 ${
@@ -1633,12 +1662,23 @@ export default function Home() {
               >
                 Investimentos
               </button>
+              <button
+                onClick={() => setAdminTab('mpts')}
+                className={`px-4 py-2 font-semibold transition-all duration-300 border-b-2 flex items-center gap-2 ${
+                  adminTab === 'mpts'
+                    ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
+                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                }`}
+              >
+                <Layers className="w-4 h-4" />
+                MPTs Emitidos
+              </button>
               <Link
                 href="/admin/mpt"
                 className="px-4 py-2 font-semibold transition-all duration-300 border-b-2 border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 flex items-center gap-2"
               >
                 <Sparkles className="w-4 h-4" />
-                Gerenciar MPTs
+                Criar MPT
               </Link>
               <Link
                 href="/admin/wallets"
@@ -1935,6 +1975,182 @@ export default function Home() {
                         </tbody>
                       </table>
                     </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Conteúdo da aba MPTs Emitidos */}
+            {adminTab === 'mpts' && (
+              <div>
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-xl font-bold text-gray-800 dark:text-white flex items-center gap-2">
+                    <Layers className="w-6 h-6" />
+                    MPTs Emitidos ({mptIssuances.length})
+                  </h3>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={fetchMptIssuances}
+                      disabled={loadingMptIssuances}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold flex items-center gap-2 disabled:opacity-50 transition-all"
+                    >
+                      {loadingMptIssuances ? (
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        'Atualizar'
+                      )}
+                    </button>
+                    <Link
+                      href="/admin/mpt"
+                      className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-semibold flex items-center gap-2 transition-all"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Criar Novo MPT
+                    </Link>
+                  </div>
+                </div>
+
+                {loadingMptIssuances ? (
+                  <div className="text-center py-12">
+                    <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+                    <p className="text-gray-600 dark:text-gray-300">Carregando MPTs emitidos...</p>
+                  </div>
+                ) : mptIssuances.length === 0 ? (
+                  <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-12 text-center border border-gray-200 dark:border-gray-700">
+                    <Layers className="w-16 h-16 mx-auto mb-4 text-gray-400 dark:text-gray-500" />
+                    <p className="text-gray-600 dark:text-gray-300 text-lg mb-4">
+                      Nenhum MPT emitido ainda.
+                    </p>
+                    <Link
+                      href="/admin/mpt"
+                      className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold transition-all"
+                    >
+                      <Sparkles className="w-5 h-5" />
+                      Criar Primeiro MPT
+                    </Link>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {mptIssuances.map((mpt, index) => {
+                      const Icon = typeIcons[mpt.type as keyof typeof typeIcons] || Coins;
+                      const colorClass = typeColors[mpt.type as keyof typeof typeColors] || 'from-blue-400 to-blue-600';
+
+                      return (
+                        <motion.div
+                          key={mpt.id}
+                          initial={{ opacity: 0, y: 20 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.5, delay: index * 0.05 }}
+                          className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-6 border border-gray-200 dark:border-gray-700 hover:shadow-2xl hover:border-blue-300 dark:hover:border-blue-600 transition-all duration-300"
+                        >
+                          <div className="flex items-start gap-4 mb-4">
+                            <div className={`p-3 bg-gradient-to-br ${colorClass} rounded-xl`}>
+                              <Icon className="w-8 h-8 text-white" />
+                            </div>
+                            <div className="flex-1">
+                              <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-1">
+                                {mpt.name || mpt.symbol}
+                              </h3>
+                              <p className="text-sm text-gray-500 dark:text-gray-400">
+                                {mpt.symbol} • {mpt.type}
+                              </p>
+                            </div>
+                            <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                              mpt.status === 'ACTIVE' || mpt.status === 'CREATED'
+                                ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
+                                : mpt.status === 'PAUSED'
+                                ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'
+                                : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+                            }`}>
+                              {mpt.status}
+                            </span>
+                          </div>
+
+                          {/* ID e TX Hash clicáveis */}
+                          <div className="space-y-2 mb-4">
+                            {mpt.xrplIssuanceId && (
+                              <div className="flex items-center gap-2 text-sm">
+                                <span className="text-gray-500 dark:text-gray-400 font-medium">ID:</span>
+                                <a
+                                  href={mpt.explorerUrls?.mpt}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="font-mono text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 truncate"
+                                >
+                                  {mpt.xrplIssuanceId.slice(0, 16)}...
+                                  <ExternalLink className="w-3 h-3 flex-shrink-0" />
+                                </a>
+                              </div>
+                            )}
+                            {mpt.issuanceTxHash && (
+                              <div className="flex items-center gap-2 text-sm">
+                                <span className="text-gray-500 dark:text-gray-400 font-medium">TX:</span>
+                                <a
+                                  href={mpt.explorerUrls?.tx}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="font-mono text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 truncate"
+                                >
+                                  {mpt.issuanceTxHash.slice(0, 16)}...
+                                  <ExternalLink className="w-3 h-3 flex-shrink-0" />
+                                </a>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Informações */}
+                          <div className="flex flex-wrap gap-2 mb-4">
+                            <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded text-xs">
+                              Max: {mpt.maximumAmount}
+                            </span>
+                            <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded text-xs">
+                              Decimais: {mpt.decimals}
+                            </span>
+                            <span className="px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded text-xs">
+                              {mpt.network.toUpperCase()}
+                            </span>
+                          </div>
+
+                          {/* Carteira Emissora */}
+                          {mpt.issuerWallet && (
+                            <div className="text-xs text-gray-500 dark:text-gray-400 mb-4 border-t border-gray-200 dark:border-gray-700 pt-3">
+                              <span className="font-medium">Emissor:</span>{' '}
+                              <a
+                                href={mpt.explorerUrls?.issuer}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center gap-1"
+                              >
+                                {mpt.issuerWallet.label} ({mpt.issuerWallet.address.slice(0, 8)}...)
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
+                            </div>
+                          )}
+
+                          {/* Ações */}
+                          <div className="flex gap-2">
+                            {mpt.explorerUrls?.mpt && (
+                              <a
+                                href={mpt.explorerUrls.mpt}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex-1 px-4 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition-all"
+                              >
+                                <ExternalLink className="w-4 h-4" />
+                                Ver no Explorer
+                              </a>
+                            )}
+                            <Link
+                              href="/admin/mpt"
+                              className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition-all"
+                            >
+                              Transferir
+                              <ArrowRight className="w-4 h-4" />
+                            </Link>
+                          </div>
+                        </motion.div>
+                      );
+                    })}
                   </div>
                 )}
               </div>

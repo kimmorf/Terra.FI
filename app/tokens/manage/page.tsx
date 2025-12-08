@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { BackgroundParticles } from '@/components/BackgroundParticles';
+import { WalletSelector } from '@/components/WalletSelector';
 import { useCrossmarkContext } from '@/lib/crossmark/CrossmarkProvider';
 import {
     authorizeMPToken,
@@ -532,7 +533,12 @@ export default function ManageTokensPage() {
     return (
         <main className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 transition-colors duration-300 relative overflow-hidden">
             <BackgroundParticles />
-            <ThemeToggle />
+            
+            {/* Header com Wallet e Theme Toggle */}
+            <div className="fixed top-4 right-4 z-50 flex items-center gap-3">
+                <WalletSelector />
+                <ThemeToggle />
+            </div>
 
             <div className="container mx-auto px-4 py-8 md:py-12">
                 <motion.div

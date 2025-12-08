@@ -33,12 +33,12 @@ const nextConfig = {
       const webpack = require('webpack');
       const path = require('path');
       
-      // Adicionar alias para garantir que os stubs sejam encontrados
-      config.resolve.alias = {
-        ...config.resolve.alias,
-        'bufferutil': path.resolve(__dirname, 'lib/utils/bufferutil-stub.js'),
-        'utf-8-validate': path.resolve(__dirname, 'lib/utils/utf8-validate-stub.js'),
-      };
+      // Marcar ws e módulos relacionados como externos para usar versões nativas do Node.js
+      // Isso evita problemas de compatibilidade com WebSocket no servidor
+      config.externals = config.externals || [];
+      if (Array.isArray(config.externals)) {
+        config.externals.push('bufferutil', 'utf-8-validate');
+      }
       
       // Inicializar plugins se não existir
       config.plugins = config.plugins || [];
@@ -51,17 +51,14 @@ const nextConfig = {
         })
       );
       
-      // Substituir módulos opcionais do ws por stubs
-      // Isso evita que o webpack tente processar código que referencia esses módulos
+      // Ignorar módulos opcionais do ws que podem não estar instalados
       config.plugins.push(
-        new webpack.NormalModuleReplacementPlugin(
-          /^bufferutil$/,
-          path.resolve(__dirname, 'lib/utils/bufferutil-stub.js')
-        ),
-        new webpack.NormalModuleReplacementPlugin(
-          /^utf-8-validate$/,
-          path.resolve(__dirname, 'lib/utils/utf8-validate-stub.js')
-        )
+        new webpack.IgnorePlugin({
+          resourceRegExp: /^bufferutil$/,
+        }),
+        new webpack.IgnorePlugin({
+          resourceRegExp: /^utf-8-validate$/,
+        })
       );
     }
 

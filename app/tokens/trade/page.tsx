@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { BackgroundParticles } from '@/components/BackgroundParticles';
+import { WalletSelector } from '@/components/WalletSelector';
 import { useCrossmarkContext } from '@/lib/crossmark/CrossmarkProvider';
 import { trustSetToken, trustSetTokenWithSeed, sendMPToken, authorizeMPToken, extractTransactionHash } from '@/lib/crossmark/transactions';
 import { registerAction } from '@/lib/elysia-client';
@@ -762,7 +763,12 @@ export default function TradeTokensPage() {
     return (
         <main className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-100 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 transition-colors duration-300 relative overflow-hidden">
             <BackgroundParticles />
-            <ThemeToggle />
+            
+            {/* Header com Wallet e Theme Toggle */}
+            <div className="fixed top-4 right-4 z-50 flex items-center gap-3">
+                <WalletSelector />
+                <ThemeToggle />
+            </div>
 
             <div className="container mx-auto px-4 py-8 md:py-12">
                 <motion.div

@@ -15,12 +15,33 @@ import {
   Coins,
   Wallet as WalletIcon,
   LockKeyhole,
+  ExternalLink,
+  ArrowLeft,
+  X,
+  ChevronDown,
 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { BackgroundParticles } from '@/components/BackgroundParticles';
+import { WalletSelector } from '@/components/WalletSelector';
 import { TOKEN_PRESETS, TOKEN_CONFIG, type TokenPreset } from '@/lib/tokens/presets';
 
 const STORAGE_KEY = 'admin:selectedWalletId';
+
+// URLs do explorer XRPL por rede
+const EXPLORER_URLS: Record<string, string> = {
+  mainnet: 'https://livenet.xrpl.org',
+  testnet: 'https://testnet.xrpl.org',
+  devnet: 'https://devnet.xrpl.org',
+};
+
+function getExplorerUrl(network: string, type: 'tx' | 'account' | 'mpt', hash: string): string {
+  const baseUrl = EXPLORER_URLS[network] || EXPLORER_URLS.testnet;
+  if (type === 'tx') return `${baseUrl}/transactions/${hash}`;
+  if (type === 'account') return `${baseUrl}/accounts/${hash}`;
+  if (type === 'mpt') return `${baseUrl}/mpt/${hash}`;
+  return baseUrl;
+}
 
 interface ServiceWallet {
   id: string;
@@ -72,12 +93,14 @@ async function fetchJSON<T>(input: RequestInfo, init?: RequestInit): Promise<T> 
 }
 
 export default function AdminMPTPage() {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<Tab>('listar');
   const [wallets, setWallets] = useState<ServiceWallet[]>([]);
   const [loadingWallets, setLoadingWallets] = useState(true);
   const [selectedWalletId, setSelectedWalletId] = useState<string | null>(
     () => (typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null),
   );
+  const [showWalletModal, setShowWalletModal] = useState(false);
 
   const [tokens, setTokens] = useState<TokenSummary[]>([]);
   const [loadingTokens, setLoadingTokens] = useState(false);
@@ -108,16 +131,29 @@ export default function AdminMPTPage() {
     { id: 'listar', label: 'MPTs Emitidos', icon: Layers },
   ];
 
-  const loadWallets = useCallback(async () => {
+  const loadWallets = useCallback(async (keepCurrentSelection = false) => {
     setLoadingWallets(true);
     try {
       const data = await fetchJSON<ServiceWallet[]>('/api/admin/wallets');
       setWallets(data);
+      
       if (data.length > 0) {
+        // Se deve manter a seleção atual (após trocar carteira manualmente)
+        if (keepCurrentSelection && selectedWalletId) {
+          const exists = data.find((wallet) => wallet.id === selectedWalletId);
+          if (exists) {
+            // Mantém a seleção atual
+            return;
+          }
+        }
+        
+        // Prioridade: localStorage > carteira ativa > primeira carteira
+        const storedId = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null;
+        const stored = storedId ? data.find((wallet) => wallet.id === storedId) : null;
         const active = data.find((wallet) => wallet.isActive);
-        const existing = data.find((wallet) => wallet.id === selectedWalletId);
         const fallback = data[0];
-        const walletToUse = active ?? existing ?? fallback;
+        const walletToUse = stored ?? active ?? fallback;
+        
         setSelectedWalletId(walletToUse.id);
         if (typeof window !== 'undefined') {
           localStorage.setItem(STORAGE_KEY, walletToUse.id);
@@ -166,16 +202,28 @@ export default function AdminMPTPage() {
 
   const handleSelectWallet = async (id: string) => {
     try {
-      await fetchJSON(`/api/admin/wallets/select`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ walletId: id }),
-      });
+      // Atualizar no banco (opcional - pode falhar silenciosamente)
+      try {
+        await fetchJSON(`/api/admin/wallets/select`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ walletId: id }),
+        });
+      } catch (err) {
+        console.warn('[AdminMPT] Não foi possível atualizar carteira ativa no banco:', err);
+      }
+      
+      // Sempre atualizar o estado local PRIMEIRO
       setSelectedWalletId(id);
       if (typeof window !== 'undefined') {
         localStorage.setItem(STORAGE_KEY, id);
       }
-      await loadWallets();
+      
+      // Fechar modal
+      setShowWalletModal(false);
+      
+      // Recarregar wallets mantendo a seleção atual
+      await loadWallets(true);
     } catch (error: any) {
       console.error('[AdminMPT] Erro ao selecionar carteira:', error);
     }
@@ -297,7 +345,28 @@ export default function AdminMPTPage() {
   return (
     <main className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 transition-colors duration-300 relative overflow-hidden">
       <BackgroundParticles />
-      <ThemeToggle />
+      
+      {/* Header com Wallet e Theme Toggle */}
+      <div className="fixed top-4 right-4 z-50 flex items-center gap-3">
+        <WalletSelector 
+          adminMode={true}
+          selectedServiceWallet={selectedWallet ? {
+            id: selectedWallet.id,
+            name: selectedWallet.label,
+            address: selectedWallet.address,
+            type: selectedWallet.type,
+            isActive: false,
+            network: selectedWallet.network,
+            createdAt: ''
+          } : null}
+          onServiceWalletSelect={(wallet) => {
+            setSelectedWalletId(wallet.id);
+            localStorage.setItem(STORAGE_KEY, wallet.id);
+            // loadTokens será chamado automaticamente via useEffect quando selectedWallet mudar
+          }}
+        />
+        <ThemeToggle />
+      </div>
 
       <div className="container mx-auto px-4 py-8 md:py-12">
         <motion.div
@@ -305,14 +374,24 @@ export default function AdminMPTPage() {
           animate={{ opacity: 1, y: 0 }}
           className="max-w-6xl mx-auto"
         >
+          {/* Header com botão voltar */}
           <header className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-8">
-            <div>
-              <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 dark:from-blue-400 dark:to-purple-400 bg-clip-text text-transparent flex items-center gap-3">
-                <Building2 className="w-10 h-10" /> Administração de MPTs
-              </h1>
-              <p className="text-gray-600 dark:text-gray-400 mt-2">
-                Emita, transfira e liste Multi-Purpose Tokens (LAND, BUILD, REV, COL) usando carteiras do protocolo.
-              </p>
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => router.back()}
+                className="p-2 rounded-lg bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                title="Voltar"
+              >
+                <ArrowLeft className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+              </button>
+              <div>
+                <h1 className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 dark:from-blue-400 dark:to-purple-400 bg-clip-text text-transparent flex items-center gap-3">
+                  <Building2 className="w-8 h-8 md:w-10 md:h-10" /> Administração de MPTs
+                </h1>
+                <p className="text-gray-600 dark:text-gray-400 mt-2 text-sm md:text-base">
+                  Emita, transfira e liste Multi-Purpose Tokens (LAND, BUILD, REV, COL) usando carteiras do protocolo.
+                </p>
+              </div>
             </div>
             <Link
               href="/admin/wallets"
@@ -322,19 +401,12 @@ export default function AdminMPTPage() {
             </Link>
           </header>
 
-          {/* Carteiras */}
+          {/* Seletor de Carteira com Popup */}
           <section className="mb-6">
             <div className="flex items-center gap-3 mb-3">
               <h2 className="text-lg font-semibold text-gray-800 dark:text-white flex items-center gap-2">
                 <LockKeyhole className="w-5 h-5" /> Carteira selecionada
               </h2>
-              <button
-                onClick={loadWallets}
-                disabled={loadingWallets}
-                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold flex items-center gap-2 disabled:opacity-50"
-              >
-                <RefreshCw className={`w-4 h-4 ${loadingWallets ? 'animate-spin' : ''}`} /> Atualizar
-              </button>
             </div>
 
             {wallets.length === 0 ? (
@@ -342,40 +414,37 @@ export default function AdminMPTPage() {
                 Nenhuma carteira cadastrada. Use a página <Link href="/admin/wallets" className="underline">Carteiras do Protocolo</Link> para criar ou importar uma seed.
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {wallets.map((wallet) => {
-                  const isSelected = selectedWallet?.id === wallet.id;
-                  return (
-                    <button
-                      key={wallet.id}
-                      onClick={() => handleSelectWallet(wallet.id)}
-                      className={`text-left p-4 rounded-xl border transition-all ${
-                        isSelected
-                          ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-400'
-                          : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900/60 hover:border-blue-300'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <h3 className="font-semibold text-gray-800 dark:text-white flex items-center gap-2">
-                            <WalletIcon className="w-4 h-4" /> {wallet.label}
-                          </h3>
-                          <p className="text-xs font-mono text-gray-500 dark:text-gray-400 mt-1">
-                            {wallet.address}
-                          </p>
-                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                            Tipo: {wallet.type} • Rede: {wallet.network.toUpperCase()}
-                          </p>
-                        </div>
-                        {(wallet.isActive || isSelected) && (
-                          <span className="px-2 py-1 text-xs bg-blue-600 text-white rounded-full">
-                            {wallet.isActive ? 'Ativa' : 'Selecionada'}
-                          </span>
-                        )}
+              <div className="relative">
+                {/* Botão que abre o popup */}
+                <button
+                  onClick={() => setShowWalletModal(true)}
+                  className="w-full p-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900/60 hover:border-blue-400 dark:hover:border-blue-500 transition-all flex items-center justify-between gap-3"
+                >
+                  {selectedWallet ? (
+                    <div className="flex items-center gap-3 flex-1">
+                      <div className="p-2 bg-blue-100 dark:bg-blue-900/50 rounded-lg">
+                        <WalletIcon className="w-5 h-5 text-blue-600 dark:text-blue-400" />
                       </div>
-                    </button>
-                  );
-                })}
+                      <div className="text-left flex-1">
+                        <h3 className="font-semibold text-gray-800 dark:text-white">
+                          {selectedWallet.label}
+                        </h3>
+                        <p className="text-xs font-mono text-gray-500 dark:text-gray-400">
+                          {selectedWallet.address}
+                        </p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          Tipo: {selectedWallet.type.toUpperCase()} • Rede: {selectedWallet.network.toUpperCase()}
+                        </p>
+                      </div>
+                      <span className="px-3 py-1 text-xs bg-blue-600 text-white rounded-full font-semibold">
+                        Selecionada
+                      </span>
+                    </div>
+                  ) : (
+                    <span className="text-gray-500 dark:text-gray-400">Clique para selecionar uma carteira</span>
+                  )}
+                  <ChevronDown className="w-5 h-5 text-gray-400" />
+                </button>
               </div>
             )}
           </section>
@@ -632,7 +701,7 @@ export default function AdminMPTPage() {
                       {tokens.map((token) => (
                         <div
                           key={token.issuanceIdHex}
-                          className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700"
+                          className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
                         >
                           <div className="flex items-start justify-between gap-4">
                             <div className="flex-1">
@@ -645,7 +714,15 @@ export default function AdminMPTPage() {
                               <div className="flex flex-wrap gap-4 text-xs text-gray-500 dark:text-gray-400 mb-2">
                                 <div className="flex items-center gap-2">
                                   <strong>ID:</strong>
-                                  <span className="font-mono">{token.issuanceIdHex.slice(0, 16)}...</span>
+                                  <a
+                                    href={getExplorerUrl(selectedWallet?.network || 'testnet', 'mpt', token.issuanceIdHex)}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="font-mono text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center gap-1"
+                                  >
+                                    {token.issuanceIdHex.slice(0, 16)}...
+                                    <ExternalLink className="w-3 h-3" />
+                                  </a>
                                   <button
                                     onClick={() => handleCopyId(token.issuanceIdHex)}
                                     className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors"
@@ -675,15 +752,25 @@ export default function AdminMPTPage() {
                                 )}
                               </div>
                             </div>
-                            <button
-                              onClick={() => {
-                                setTransferIssuanceId(token.issuanceIdHex);
-                                setActiveTab('transferir');
-                              }}
-                              className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1"
-                            >
-                              <Send className="w-3 h-3" /> Transferir
-                            </button>
+                            <div className="flex flex-col gap-2">
+                              <a
+                                href={getExplorerUrl(selectedWallet?.network || 'testnet', 'mpt', token.issuanceIdHex)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="px-3 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg text-xs font-semibold flex items-center gap-1"
+                              >
+                                <ExternalLink className="w-3 h-3" /> Explorer
+                              </a>
+                              <button
+                                onClick={() => {
+                                  setTransferIssuanceId(token.issuanceIdHex);
+                                  setActiveTab('transferir');
+                                }}
+                                className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1"
+                              >
+                                <Send className="w-3 h-3" /> Transferir
+                              </button>
+                            </div>
                           </div>
                         </div>
                       ))}
@@ -695,6 +782,115 @@ export default function AdminMPTPage() {
           </div>
         </motion.div>
       </div>
+
+      {/* Modal de Seleção de Carteira */}
+      {showWalletModal && (
+        <div className="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50 p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-lg w-full max-h-[80vh] overflow-hidden"
+          >
+            {/* Header do Modal */}
+            <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
+              <h2 className="text-xl font-bold text-gray-800 dark:text-white flex items-center gap-2">
+                <WalletIcon className="w-6 h-6" />
+                Selecionar Carteira
+              </h2>
+              <button
+                onClick={() => setShowWalletModal(false)}
+                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition"
+              >
+                <X className="w-5 h-5 text-gray-600 dark:text-gray-300" />
+              </button>
+            </div>
+
+            {/* Lista de Carteiras */}
+            <div className="p-4 overflow-y-auto max-h-[60vh]">
+              {loadingWallets ? (
+                <div className="text-center py-8">
+                  <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+                  <p className="text-gray-500 dark:text-gray-400 text-sm">Carregando carteiras...</p>
+                </div>
+              ) : wallets.length === 0 ? (
+                <div className="text-center py-8">
+                  <WalletIcon className="w-12 h-12 mx-auto mb-3 text-gray-400" />
+                  <p className="text-gray-500 dark:text-gray-400">Nenhuma carteira disponível.</p>
+                  <Link
+                    href="/admin/wallets"
+                    className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition"
+                  >
+                    Criar Carteira
+                  </Link>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {wallets.map((wallet) => {
+                    const isSelected = selectedWallet?.id === wallet.id;
+                    return (
+                      <button
+                        key={wallet.id}
+                        onClick={() => handleSelectWallet(wallet.id)}
+                        className={`w-full text-left p-4 rounded-xl border-2 transition-all hover:shadow-md ${
+                          isSelected
+                            ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30 dark:border-blue-400'
+                            : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 hover:border-blue-300 dark:hover:border-blue-600'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-3 flex-1">
+                            <div className={`p-2 rounded-lg ${isSelected ? 'bg-blue-200 dark:bg-blue-800' : 'bg-gray-200 dark:bg-gray-700'}`}>
+                              <WalletIcon className={`w-5 h-5 ${isSelected ? 'text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-400'}`} />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <h3 className="font-semibold text-gray-800 dark:text-white truncate">
+                                {wallet.label}
+                              </h3>
+                              <p className="text-xs font-mono text-gray-500 dark:text-gray-400 truncate">
+                                {wallet.address}
+                              </p>
+                              <div className="flex gap-2 mt-1">
+                                <span className="px-2 py-0.5 bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded text-xs">
+                                  {wallet.type.toUpperCase()}
+                                </span>
+                                <span className="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 rounded text-xs">
+                                  {wallet.network.toUpperCase()}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                          {isSelected && (
+                            <Check className="w-6 h-6 text-blue-600 dark:text-blue-400 flex-shrink-0" />
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Footer do Modal */}
+            <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex justify-between items-center">
+              <button
+                onClick={() => loadWallets()}
+                disabled={loadingWallets}
+                className="px-4 py-2 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg font-semibold flex items-center gap-2 disabled:opacity-50 transition"
+              >
+                <RefreshCw className={`w-4 h-4 ${loadingWallets ? 'animate-spin' : ''}`} />
+                Atualizar
+              </button>
+              <button
+                onClick={() => setShowWalletModal(false)}
+                className="px-6 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg font-semibold transition"
+              >
+                Fechar
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </main>
   );
 }

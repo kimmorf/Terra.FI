@@ -12,9 +12,14 @@ import {
   Plus,
   LockKeyhole,
   LogOut,
+  ArrowLeft,
+  Banknote,
 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { BackgroundParticles } from '@/components/BackgroundParticles';
+import { WalletSelector } from '@/components/WalletSelector';
 
 interface ServiceWallet {
   id: string;
@@ -32,17 +37,19 @@ interface ServiceWallet {
 const STORAGE_KEY = 'admin:selectedWalletId';
 
 export default function AdminWalletsPage() {
+  const router = useRouter();
   const [wallets, setWallets] = useState<ServiceWallet[]>([]);
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [label, setLabel] = useState('');
   const [document, setDocument] = useState('');
-  const [type, setType] = useState<'issuer' | 'user' | 'admin'>('issuer');
-  const [network, setNetwork] = useState<'testnet' | 'mainnet' | 'devnet'>('testnet');
+  const [type, setType] = useState<'issuer' | 'distribution' | 'user_internal'>('issuer');
+  const [network, setNetwork] = useState<'testnet' | 'mainnet' | 'devnet'>('devnet');
   const [seed, setSeed] = useState('');
   const [fund, setFund] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [fundingWalletId, setFundingWalletId] = useState<string | null>(null);
 
   const [selectedWalletId, setSelectedWalletId] = useState<string | null>(() => {
     if (typeof window === 'undefined') return null;
@@ -233,10 +240,39 @@ export default function AdminWalletsPage() {
     }
   };
 
+  const handleFund = async (walletId: string) => {
+    setFundingWalletId(walletId);
+    setError(null);
+    setSuccess(null);
+    try {
+      const response = await fetch(`/api/admin/wallets/${walletId}`, {
+        method: 'POST',
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Erro ao fundar carteira');
+      }
+      
+      setSuccess(`✅ ${data.message || 'Carteira fundada com sucesso!'}`);
+      await loadWallets();
+    } catch (err: any) {
+      setError(err.message || 'Erro ao fundar carteira');
+    } finally {
+      setFundingWalletId(null);
+    }
+  };
+
   return (
     <main className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 transition-colors duration-300 relative overflow-hidden">
       <BackgroundParticles />
-      <ThemeToggle />
+      
+      {/* Header com Wallet e Theme Toggle */}
+      <div className="fixed top-4 right-4 z-50 flex items-center gap-3">
+        <WalletSelector adminMode={true} />
+        <ThemeToggle />
+      </div>
 
       <div className="container mx-auto px-4 py-8 md:py-12">
         <motion.div
@@ -245,16 +281,25 @@ export default function AdminWalletsPage() {
           className="max-w-6xl mx-auto"
         >
           <div className="flex items-center justify-between mb-8">
-            <div>
-              <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 dark:from-blue-400 dark:to-purple-400 bg-clip-text text-transparent flex items-center gap-3">
-                <WalletIcon className="w-10 h-10" />
-                Carteiras do Protocolo
-              </h1>
-              <p className="text-gray-600 dark:text-gray-400 mt-2 max-w-2xl">
-                Gere e armazene carteiras administrativas do Terra.Fi. As seeds são cifradas
-                automaticamente para uso neste ambiente de testes. Selecione uma carteira para usá-la nos
-                fluxos de emissão, freeze ou clawback.
-              </p>
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => router.back()}
+                className="p-2 rounded-lg bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                title="Voltar"
+              >
+                <ArrowLeft className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+              </button>
+              <div>
+                <h1 className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 dark:from-blue-400 dark:to-purple-400 bg-clip-text text-transparent flex items-center gap-3">
+                  <WalletIcon className="w-8 h-8 md:w-10 md:h-10" />
+                  Carteiras do Protocolo
+                </h1>
+                <p className="text-gray-600 dark:text-gray-400 mt-2 max-w-2xl text-sm md:text-base">
+                  Gere e armazene carteiras administrativas do Terra.Fi. As seeds são cifradas
+                  automaticamente para uso neste ambiente de testes. Selecione uma carteira para usá-la nos
+                  fluxos de emissão, freeze ou clawback.
+                </p>
+              </div>
             </div>
             <button
               onClick={loadWallets}
@@ -322,8 +367,8 @@ export default function AdminWalletsPage() {
                     className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800"
                   >
                     <option value="issuer">Emissora (LAND/BUILD/REV/COL)</option>
-                    <option value="user">Carteira de usuário / investidor</option>
-                    <option value="admin">Carteira administrativa</option>
+                    <option value="distribution">Distribuição</option>
+                    <option value="user_internal">Usuário / Investidor</option>
                   </select>
                 </div>
 
@@ -332,15 +377,15 @@ export default function AdminWalletsPage() {
                     <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">
                       Rede
                     </label>
-                    <select
-                      value={network}
-                      onChange={(event) => setNetwork(event.target.value as typeof network)}
-                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800"
-                    >
-                      <option value="testnet">Testnet</option>
-                      <option value="devnet">Devnet</option>
-                      <option value="mainnet">Mainnet</option>
-                    </select>
+                    <div className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 flex items-center justify-between">
+                      <span className="font-medium">DevNet</span>
+                      <span className="text-xs bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded">
+                        Padrão
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      Seleção de rede será implementada futuramente
+                    </p>
                   </div>
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">
@@ -356,17 +401,15 @@ export default function AdminWalletsPage() {
                   </div>
                 </div>
 
-                {network === 'testnet' && (
-                  <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
-                    <input
-                      type="checkbox"
-                      checked={fund}
-                      onChange={(event) => setFund(event.target.checked)}
-                      className="rounded"
-                    />
-                    Financiar automaticamente via faucet (testnet)
-                  </label>
-                )}
+                <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                  <input
+                    type="checkbox"
+                    checked={fund}
+                    onChange={(event) => setFund(event.target.checked)}
+                    className="rounded"
+                  />
+                  Financiar automaticamente via faucet (DevNet)
+                </label>
 
                 <button
                   onClick={handleCreate}
@@ -476,6 +519,27 @@ export default function AdminWalletsPage() {
                                     Desconectar
                                   </button>
                                 </>
+                              )}
+                              {/* Botão de fundar (só para testnet/devnet) */}
+                              {wallet.network !== 'mainnet' && (
+                                <button
+                                  onClick={() => handleFund(wallet.id)}
+                                  disabled={fundingWalletId === wallet.id}
+                                  className="px-3 py-2 rounded-lg text-sm font-semibold text-emerald-600 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-900/20 transition-all flex items-center gap-1 disabled:opacity-50"
+                                  title="Fundar carteira via faucet"
+                                >
+                                  {fundingWalletId === wallet.id ? (
+                                    <>
+                                      <RefreshCw className="w-4 h-4 animate-spin" />
+                                      Fundando...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Banknote className="w-4 h-4" />
+                                      Fundar
+                                    </>
+                                  )}
+                                </button>
                               )}
                               <button
                                 onClick={() => handleDelete(wallet.id)}

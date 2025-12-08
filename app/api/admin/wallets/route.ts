@@ -48,12 +48,15 @@ export async function POST(request: NextRequest) {
       label,
       document,
       type = 'issuer',
-      network = 'testnet',
+      network: requestedNetwork = 'devnet',
       seed,
       fund = true,
       userId, // Para carteiras USER_INTERNAL
       isActive = false, // Por padrão, novas carteiras não são ativas
     } = body;
+
+    // Por enquanto, forçar uso de devnet (seleção de rede será implementada futuramente)
+    const network = 'devnet';
 
     if (!label || typeof label !== 'string') {
       return NextResponse.json(
@@ -141,9 +144,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!seed && network === 'testnet' && fund) {
+    // Fundar carteira automaticamente via faucet (devnet por padrão)
+    if (!seed && fund) {
       try {
-        const faucetUrl = 'https://faucet.altnet.rippletest.net/accounts';
+        const faucetUrls: Record<string, string> = {
+          testnet: 'https://faucet.altnet.rippletest.net/accounts',
+          devnet: 'https://faucet.devnet.rippletest.net/accounts',
+        };
+        
+        const faucetUrl = faucetUrls[network];
+        console.log(`[ServiceWallet][POST] Fundando carteira na ${network}:`, wallet.address);
+        
         const response = await fetch(faucetUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -154,13 +165,20 @@ export async function POST(request: NextRequest) {
         });
         
         if (!response.ok) {
+          const errorText = await response.text();
+          console.warn(`[ServiceWallet][POST] Faucet ${network} retornou ${response.status}:`, errorText);
           throw new Error(`Faucet retornou ${response.status}`);
         }
         
+        const faucetResponse = await response.json();
+        console.log(`[ServiceWallet][POST] Faucet ${network} resposta:`, faucetResponse);
+        
         // Aguardar um pouco para o funding ser processado
         await new Promise(resolve => setTimeout(resolve, 3000));
+        console.log(`[ServiceWallet][POST] Carteira fundada com sucesso na ${network}`);
       } catch (fundError) {
-        console.warn('[ServiceWallet][POST] Falha ao financiar carteira testnet:', fundError);
+        console.warn(`[ServiceWallet][POST] Falha ao financiar carteira ${network}:`, fundError);
+        // Não falhar a criação, apenas avisar
       }
     }
 

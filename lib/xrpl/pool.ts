@@ -6,23 +6,37 @@ import { Client } from 'xrpl';
 
 export type XRPLNetwork = 'testnet' | 'mainnet' | 'devnet';
 
-const XRPL_ENDPOINTS: Record<XRPLNetwork, string> = {
-  mainnet: 'wss://xrplcluster.com',
-  testnet: 'wss://s.altnet.rippletest.net:51233',
-  devnet: 'wss://s.devnet.rippletest.net:51233',
+// Endpoints alternativos para cada rede
+const XRPL_ENDPOINTS: Record<XRPLNetwork, string[]> = {
+  mainnet: [
+    'wss://xrplcluster.com',
+    'wss://s1.ripple.com',
+    'wss://s2.ripple.com',
+  ],
+  testnet: [
+    'wss://s.altnet.rippletest.net:51233',
+    'wss://testnet.xrpl-labs.com',
+  ],
+  devnet: [
+    'wss://s.devnet.rippletest.net:51233',
+  ],
 };
+
+function getEndpoint(network: XRPLNetwork): string {
+  const endpoints = XRPL_ENDPOINTS[network];
+  // Usar o primeiro endpoint por padrão
+  return endpoints[0];
+}
 
 interface ConnectionState {
   client: Client;
   lastUsed: number;
-  reconnectAttempts: number;
 }
 
 export class XRPLConnectionPool {
   private connections: Map<XRPLNetwork, ConnectionState> = new Map();
   private connecting: Map<XRPLNetwork, Promise<Client>> = new Map();
   private readonly MAX_IDLE_TIME = 5 * 60 * 1000; // 5 minutos
-  private readonly MAX_RECONNECT_ATTEMPTS = 3;
   private cleanupInterval: NodeJS.Timeout | null = null;
 
   constructor() {
@@ -90,7 +104,6 @@ export class XRPLConnectionPool {
       this.connections.set(network, {
         client,
         lastUsed: Date.now(),
-        reconnectAttempts: 0,
       });
       return client;
     } catch (error) {
@@ -102,107 +115,60 @@ export class XRPLConnectionPool {
   }
 
   private async createConnection(network: XRPLNetwork): Promise<Client> {
-    const endpoint = XRPL_ENDPOINTS[network];
-    const client = new Client(endpoint);
+    const endpoints = XRPL_ENDPOINTS[network];
+    let lastError: Error | null = null;
 
-    // Configurar listeners para reconexão automática
-    this.setupConnectionListeners(client, network);
+    // Tentar cada endpoint disponível
+    for (const endpoint of endpoints) {
+      console.log(`[XRPL Pool] Tentando conectar a ${network} via ${endpoint}...`);
+      
+      const client = new Client(endpoint);
 
-    try {
-      // Conectar com timeout
-      await Promise.race([
-        client.connect(),
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Timeout ao conectar com XRPL')), 10000)
-        )
-      ]);
-      
-      // Verificar se realmente está conectado após conectar
-      if (!client.isConnected()) {
-        throw new Error('Falha ao estabelecer conexão com XRPL');
-      }
-      
-      return client;
-    } catch (error) {
-      console.error(`[XRPL Pool] Erro ao conectar ${network}:`, error);
-      // Tentar desconectar se falhou para limpar recursos
       try {
-        await client.disconnect();
-      } catch {
-        // Ignora erro ao desconectar
+        // Conectar
+        await client.connect();
+        console.log(`[XRPL Pool] connect() OK para ${network} via ${endpoint}`);
+
+        // Aguardar um pouco para a conexão estabilizar
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        // Verificar se está realmente conectado
+        let retries = 3;
+        while (!client.isConnected() && retries > 0) {
+          console.log(`[XRPL Pool] Aguardando conexão estabilizar... (${retries} tentativas restantes)`);
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          retries--;
+        }
+        
+        if (!client.isConnected()) {
+          console.log(`[XRPL Pool] Conexão não estabelecida, tentando próximo endpoint...`);
+          try { await client.disconnect(); } catch {}
+          continue;
+        }
+
+        // Health check simples: server_info (tolerante a falhas)
+        try {
+          const serverInfo = await client.request({ command: 'server_info' } as any);
+          console.log(`[XRPL Pool] Health check OK para ${network} - Ledger: ${serverInfo.result?.info?.validated_ledger?.seq || 'N/A'}`);
+        } catch (pingError: any) {
+          console.warn(`[XRPL Pool] Health check falhou, mas conexão parece OK:`, pingError.message);
+          // Não falhar se conexão parece OK - apenas logar warning
+          if (!client.isConnected()) {
+            try { await client.disconnect(); } catch {}
+            continue;
+          }
+        }
+        
+        return client;
+      } catch (error: any) {
+        console.error(`[XRPL Pool] Erro ao conectar ${network} via ${endpoint}:`, error.message);
+        lastError = error;
+        try { await client.disconnect(); } catch {}
+        // Continua tentando próximo endpoint
       }
-      throw error;
-    }
-  }
-
-  private setupConnectionListeners(client: Client, network: XRPLNetwork): void {
-    // Listener para desconexão inesperada
-    const onDisconnect = () => {
-      console.log(`[XRPL Pool] Conexão ${network} desconectada, tentando reconectar...`);
-      const state = this.connections.get(network);
-      if (state) {
-        state.reconnectAttempts++;
-        // Tentar reconectar após um delay
-        setTimeout(() => {
-          this.attemptReconnect(network).catch((error) => {
-            console.error(`[XRPL Pool] Falha ao reconectar ${network}:`, error);
-            // Se exceder tentativas, remover conexão
-            if (state.reconnectAttempts >= this.MAX_RECONNECT_ATTEMPTS) {
-              console.error(`[XRPL Pool] Excedeu tentativas de reconexão para ${network}, removendo conexão`);
-              this.connections.delete(network);
-            }
-          });
-        }, 1000 * state.reconnectAttempts); // Backoff exponencial
-      }
-    };
-
-    // Tentar adicionar listeners se disponível
-    try {
-      // O cliente XRPL pode ter eventos, mas não temos acesso direto
-      // Vamos verificar a conexão periodicamente
-    } catch (error) {
-      // Ignora se não conseguir adicionar listeners
-    }
-  }
-
-  private async attemptReconnect(network: XRPLNetwork): Promise<void> {
-    const state = this.connections.get(network);
-    if (!state) {
-      // Se não existe estado, não há nada para reconectar
-      return;
     }
 
-    try {
-      // IMPORTANTE: Segundo a documentação do xrpl.js, não é recomendado
-      // tentar reconectar um client desconectado. É melhor criar um novo.
-      // Mas vamos tentar uma vez antes de descartar
-      if (state.client.isConnected()) {
-        state.reconnectAttempts = 0;
-        return;
-      }
-
-      // Tentar reconectar com timeout
-      await Promise.race([
-        state.client.connect(),
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Timeout ao reconectar')), 5000)
-        )
-      ]);
-      
-      // Verificar se realmente reconectou
-      if (!state.client.isConnected()) {
-        throw new Error('Reconexão falhou - conexão não estabelecida');
-      }
-      
-      state.reconnectAttempts = 0;
-      state.lastUsed = Date.now();
-      console.log(`[XRPL Pool] Reconectado com sucesso ${network}`);
-    } catch (error) {
-      console.error(`[XRPL Pool] Erro ao reconectar ${network}:`, error);
-      // Se falhou, remove a conexão para forçar criação de nova na próxima vez
-      this.connections.delete(network);
-      throw error;
-    }
+    throw lastError || new Error(`Não foi possível conectar a nenhum endpoint para ${network}`);
   }
 
 

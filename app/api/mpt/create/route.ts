@@ -10,18 +10,22 @@ import { decryptSecret } from '@/lib/utils/crypto';
  * 
  * Body:
  * {
- *   issuerAddress: string,
- *   issuerSeed: string,
- *   assetScale?: number,
- *   maximumAmount?: string,
- *   transferFee?: number,
- *   metadata?: object,
- *   flags?: object,
- *   network?: string
+ *   walletId?: string,          // ID da carteira de serviço (recomendado)
+ *   issuerAddress?: string,     // OU endereço + seed direto
+ *   issuerSeed?: string,
+ *   assetScale?: number,        // Decimais (0-9)
+ *   maximumAmount?: string,     // Supply máximo
+ *   transferFee?: number,       // Taxa em basis points
+ *   metadata?: object,          // Metadados customizados
+ *   metadataOverrides?: object, // Sobrescrita de metadados padrão
+ *   tokenType?: string,         // land, build, rev, col
+ *   flags?: object,             // canTransfer, requireAuth, etc
+ *   network?: string            // testnet, mainnet, devnet
  * }
  */
 export async function POST(request: NextRequest) {
   try {
+    const prisma = getPrismaClient();
     const body = await request.json();
     const {
       issuerAddress: rawIssuerAddress,
@@ -31,7 +35,7 @@ export async function POST(request: NextRequest) {
       transferFee = 0,
       metadata,
       metadataOverrides,
-      tokenType,
+      tokenType = 'land',
       flags,
       walletId,
       network: rawNetwork = 'testnet'
@@ -40,9 +44,10 @@ export async function POST(request: NextRequest) {
     let issuerAddress = rawIssuerAddress;
     let issuerSeed = rawIssuerSeed;
     let network = rawNetwork as 'testnet' | 'mainnet' | 'devnet';
+    let issuerWalletId: string | undefined = walletId;
 
+    // Se walletId foi fornecido, buscar dados da carteira
     if (walletId) {
-      const prisma = getPrismaClient();
       if (!prisma) {
         return NextResponse.json(
           { error: 'DATABASE_URL não configurada. Configure o banco para usar carteiras de serviço.' },
@@ -88,14 +93,24 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (tokenType && !['land', 'build', 'rev', 'col'].includes(tokenType)) {
+    const validTokenTypes = ['land', 'build', 'rev', 'col'];
+    const normalizedTokenType = tokenType?.toLowerCase() || 'land';
+    if (!validTokenTypes.includes(normalizedTokenType)) {
       return NextResponse.json(
         { error: 'tokenType inválido. Use: land, build, rev ou col.' },
         { status: 400 }
       );
     }
 
-    // Criar MPT
+    // Criar MPT on-chain
+    console.log('[API MPT Create] Criando MPT on-chain...', {
+      issuerAddress,
+      assetScale,
+      maximumAmount,
+      tokenType: normalizedTokenType,
+      network,
+    });
+
     const result = await createMPT({
       issuerAddress,
       issuerSeed,
@@ -104,10 +119,52 @@ export async function POST(request: NextRequest) {
       transferFee,
       metadata,
       metadataOverrides,
-      tokenType,
+      tokenType: normalizedTokenType as 'land' | 'build' | 'rev' | 'col',
       flags,
       network
     });
+
+    console.log('[API MPT Create] MPT criado on-chain:', {
+      mptokenIssuanceID: result.mptokenIssuanceID,
+      txHash: result.txHash,
+    });
+
+    // Salvar no banco de dados (se prisma disponível)
+    let savedIssuance = null;
+    if (prisma && issuerWalletId) {
+      try {
+        // Gerar nome e símbolo
+        const tokenName = metadataOverrides?.name || metadata?.name || `${normalizedTokenType.toUpperCase()}-MPT`;
+        const tokenSymbol = `${normalizedTokenType.toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
+
+        savedIssuance = await prisma.mPTIssuance.create({
+          data: {
+            type: normalizedTokenType.toUpperCase(),
+            symbol: tokenSymbol,
+            name: tokenName as string,
+            maximumAmount: maximumAmount,
+            decimals: assetScale,
+            assetScale: assetScale,
+            transferFee: transferFee,
+            issuerWalletId: issuerWalletId,
+            xrplIssuanceId: result.mptokenIssuanceID,
+            xrplCurrency: result.currency || null,
+            issuanceTxHash: result.txHash,
+            metadataJson: JSON.parse(JSON.stringify(result.metadata || {})),
+            flags: JSON.parse(JSON.stringify(flags || {})),
+            network: network,
+            status: 'CREATED',
+            totalMinted: '0',
+            distributionBalance: '0',
+          },
+        });
+
+        console.log('[API MPT Create] MPT salvo no banco:', savedIssuance.id);
+      } catch (dbError: any) {
+        console.error('[API MPT Create] Erro ao salvar no banco (MPT foi criado on-chain):', dbError);
+        // Não falhar a requisição, MPT já foi criado on-chain
+      }
+    }
 
     return NextResponse.json({
       success: true,
@@ -116,8 +173,10 @@ export async function POST(request: NextRequest) {
       currency: result.currency,
       ticker: result.ticker,
       metadata: result.metadata,
-      tokenType: result.tokenType,
-      result: result.result
+      tokenType: normalizedTokenType,
+      // Dados do banco (se salvou)
+      issuanceId: savedIssuance?.id || null,
+      savedToDatabase: !!savedIssuance,
     });
   } catch (error: any) {
     console.error('[API MPT Create] Erro:', error);
