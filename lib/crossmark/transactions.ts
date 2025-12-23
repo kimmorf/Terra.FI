@@ -63,8 +63,11 @@ export interface MPTPaymentParams {
   sender: string;
   destination: string;
   amount: string;
-  currency: string;
-  issuer: string;
+  // Identificação do token - preferência: mptokenIssuanceID
+  mptokenIssuanceID?: string; // Formato moderno MPT (recomendado)
+  // OU identificação por Currency + Issuer (legado/IOUs)
+  currency?: string;
+  issuer?: string;
   memo?: string;
 }
 
@@ -273,15 +276,32 @@ export function buildMPTokenAuthorizeTransaction({
   authorize,
   account,
 }: MPTokenAuthorizeParams) {
+  // Determinar quem está enviando a transação
+  // - Se account é fornecido, usa account
+  // - Se não, usa holder (para auto-autorização) ou issuer (para autorizar terceiros)
+  const txAccount = account ?? holder ?? issuer;
+  
+  if (!txAccount) {
+    throw new Error('MPTokenAuthorize requer account, holder ou issuer');
+  }
+
   const transaction: Record<string, unknown> = {
     TransactionType: 'MPTokenAuthorize',
-    Account: account ?? issuer ?? holder, // Account pode ser issuer ou holder
-    Holder: holder,
+    Account: txAccount,
   };
+
+  // Segundo documentação XRPL:
+  // - Holder só deve ser incluído quando o EMISSOR está autorizando um terceiro
+  // - Para AUTO-AUTORIZAÇÃO (holder == account), NÃO incluir Holder
+  // Ref: https://xrpl.org/docs/tutorials/javascript/send-payments/sending-mpts#authorize-mpt
+  const isSelfAuthorize = holder === txAccount || !holder;
+  if (!isSelfAuthorize && holder) {
+    transaction.Holder = holder;
+  }
 
   // Preferência: usar MPTokenIssuanceID (padrão moderno)
   if (mptokenIssuanceID) {
-    transaction.MPTokenIssuanceID = mptokenIssuanceID;
+    transaction.MPTokenIssuanceID = mptokenIssuanceID.toUpperCase();
   } 
   // Fallback: usar Currency + Issuer (legado/compatibilidade)
   else if (currency && issuer) {
@@ -333,6 +353,7 @@ export function buildPaymentTransaction({
   sender,
   destination,
   amount,
+  mptokenIssuanceID,
   currency,
   issuer,
   memo,
@@ -341,12 +362,26 @@ export function buildPaymentTransaction({
     TransactionType: 'Payment',
     Account: sender,
     Destination: destination,
-    Amount: {
+  };
+
+  // Formato do Amount depende se é MPT ou IOU
+  if (mptokenIssuanceID) {
+    // Formato MPT moderno: { mpt_issuance_id: "...", value: "..." }
+    const cleanedID = mptokenIssuanceID.replace(/[^0-9A-Fa-f]/g, '').toUpperCase();
+    transaction.Amount = {
+      mpt_issuance_id: cleanedID,
+      value: amount,
+    };
+  } else if (currency && issuer) {
+    // Formato IOU legado: { currency: "...", issuer: "...", value: "..." }
+    transaction.Amount = {
       currency: currency.toUpperCase(),
       issuer,
       value: amount,
-    },
-  };
+    };
+  } else {
+    throw new Error('Payment requer mptokenIssuanceID OU (currency + issuer)');
+  }
 
   if (memo) {
     transaction.Memos = [

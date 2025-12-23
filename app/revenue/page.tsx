@@ -16,12 +16,23 @@ import {
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { BackgroundParticles } from '@/components/BackgroundParticles';
 import { WalletSelector } from '@/components/WalletSelector';
+import { WalletInfo } from '@/components/WalletInfo';
 import { useCrossmarkContext } from '@/lib/crossmark/CrossmarkProvider';
 import { TOKEN_PRESETS, type TokenPreset } from '@/lib/tokens/presets';
 import { STABLECOINS, type StablecoinConfig } from '@/lib/tokens/stablecoins';
 import { getTokenHolders, calculateTotalSupply, hasTrustLine } from '@/lib/xrpl/mpt';
 import { sendMPToken, extractTransactionHash } from '@/lib/crossmark/transactions';
 import { registerAction } from '@/lib/elysia-client';
+// Interface para MPTs emitidos do banco
+interface IssuedMPT {
+  id: string;
+  ticker: string | null;
+  currency: string | null;
+  issuanceIdHex: string;
+  issuerAddress: string;
+  name?: string;
+  maximumAmount?: string;
+}
 
 function formatAddress(address: string) {
   return `${address.slice(0, 8)}...${address.slice(-8)}`;
@@ -46,6 +57,11 @@ export default function RevenuePage() {
     [selectedStableId],
   );
 
+  // Estado para MPTs emitidos do banco
+  const [issuedMPTs, setIssuedMPTs] = useState<IssuedMPT[]>([]);
+  const [selectedMPTId, setSelectedMPTId] = useState<string>(''); // ID do MPT selecionado (vazio = usar preset)
+  const selectedMPT = useMemo(() => issuedMPTs.find(mpt => mpt.id === selectedMPTId), [issuedMPTs, selectedMPTId]);
+
   const [holders, setHolders] = useState<any[]>([]);
   const [holdersLoading, setHoldersLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -55,6 +71,117 @@ export default function RevenuePage() {
   const [paymentStatus, setPaymentStatus] = useState<Record<string, { message?: string; error?: string }>>({});
   const [isPaying, setIsPaying] = useState(false);
   const [copied, setCopied] = useState(false);
+  
+  // Estado para saldo XRP e faucet
+  const [xrpBalance, setXrpBalance] = useState<number | null>(null);
+  const [requestingFaucet, setRequestingFaucet] = useState(false);
+  const [faucetMessage, setFaucetMessage] = useState<string | null>(null);
+
+  // Carregar MPTs emitidos do banco
+  useEffect(() => {
+    async function loadIssuedMPTs() {
+      try {
+        const response = await fetch('/api/mpt/issuances');
+        if (response.ok) {
+          const data = await response.json();
+          const mpts = data.issuances || [];
+          setIssuedMPTs(mpts.map((m: any) => ({
+            id: m.id,
+            ticker: m.ticker,
+            currency: m.currency,
+            issuanceIdHex: m.issuanceIdHex,
+            issuerAddress: m.issuerAddress,
+            name: m.metadata?.name || m.ticker || 'MPT',
+            maximumAmount: m.maximumAmount,
+          })));
+        }
+      } catch (error) {
+        console.warn('[Revenue] Erro ao carregar MPTs emitidos:', error);
+      }
+    }
+    loadIssuedMPTs();
+  }, []);
+
+  // Carregar saldo XRP quando conta conectar
+  useEffect(() => {
+    async function loadXRPBalance() {
+      if (!account?.address || !account?.network) {
+        setXrpBalance(null);
+        return;
+      }
+      try {
+        const response = await fetch(`/api/wallet/balance?address=${account.address}&network=${account.network}`);
+        if (response.ok) {
+          const data = await response.json();
+          setXrpBalance(data.xrpBalance ?? null);
+        }
+      } catch (error) {
+        console.warn('[Revenue] Erro ao carregar saldo XRP:', error);
+      }
+    }
+    loadXRPBalance();
+  }, [account?.address, account?.network]);
+
+  // Função para solicitar faucet
+  const requestFaucet = useCallback(async () => {
+    if (!account?.address || !account?.network) return;
+    if (account.network === 'mainnet') {
+      setFaucetMessage('Faucet não disponível na mainnet');
+      return;
+    }
+
+    setRequestingFaucet(true);
+    setFaucetMessage(null);
+
+    const faucetUrls: Record<string, string> = {
+      testnet: 'https://faucet.altnet.rippletest.net/accounts',
+      devnet: 'https://faucet.devnet.rippletest.net/accounts',
+    };
+
+    const faucetUrl = faucetUrls[account.network];
+    if (!faucetUrl) {
+      setFaucetMessage('Rede não suportada para faucet');
+      setRequestingFaucet(false);
+      return;
+    }
+
+    try {
+      const response = await fetch(faucetUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          destination: account.address,
+          xrpAmount: '1000',
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Faucet retornou ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log('[Faucet] Sucesso:', data);
+      setFaucetMessage('XRP creditado! Aguarde alguns segundos para atualizar.');
+      
+      // Recarrega saldo após 3 segundos
+      setTimeout(async () => {
+        try {
+          const balanceResponse = await fetch(`/api/wallet/balance?address=${account.address}&network=${account.network}`);
+          if (balanceResponse.ok) {
+            const balanceData = await balanceResponse.json();
+            setXrpBalance(balanceData.xrpBalance ?? null);
+          }
+        } catch (e) {
+          console.warn('[Revenue] Erro ao recarregar saldo:', e);
+        }
+      }, 3000);
+    } catch (error: any) {
+      console.error('[Faucet] Erro:', error);
+      setFaucetMessage(`Erro ao solicitar faucet: ${error.message}`);
+    } finally {
+      setRequestingFaucet(false);
+    }
+  }, [account?.address, account?.network]);
 
   useEffect(() => {
     if (!account) {
@@ -150,6 +277,8 @@ export default function RevenuePage() {
 
   const handlePayHolder = useCallback(
     async (holderAddress: string, amount: number) => {
+      const mpt = selectedMPT;
+      
       if (!account || !selectedStable || amount <= 0) return;
 
       setIsPaying(true);
@@ -159,37 +288,54 @@ export default function RevenuePage() {
       }));
 
       try {
-        const hasLine = await hasTrustLine({
-          account: holderAddress,
-          currency: selectedStable.currency,
-          issuer: selectedStable.issuer,
-          network: account.network,
-        }).catch(() => false);
+        // Verificar trustline para stablecoin (se pagando com stablecoin)
+        // Se pagando com MPT, a verificação de autorização é diferente
+        if (!mpt) {
+          const hasLine = await hasTrustLine({
+            account: holderAddress,
+            currency: selectedStable.currency,
+            issuer: selectedStable.issuer,
+            network: account.network,
+          }).catch(() => false);
 
-        if (!hasLine) {
-          const message = `Holder sem trustline configurada para ${selectedStable.currency}.`;
-          setPaymentStatus((prev) => ({
-            ...prev,
-            [holderAddress]: { error: message },
-          }));
-          setIsPaying(false);
-          return;
+          if (!hasLine) {
+            const message = `Holder sem trustline configurada para ${selectedStable.currency}.`;
+            setPaymentStatus((prev) => ({
+              ...prev,
+              [holderAddress]: { error: message },
+            }));
+            setIsPaying(false);
+            return;
+          }
         }
 
-        const response = await sendMPToken({
-          sender: account.address,
-          destination: holderAddress,
-          amount: amount.toFixed(selectedStable.decimals),
-          currency: selectedStable.currency,
-          issuer: selectedStable.issuer,
-          memo: memo.trim() || undefined,
-        });
+        // Construir parâmetros de pagamento
+        // Se MPT selecionado, usar mptokenIssuanceID; senão, usar stablecoin
+        const paymentParams = mpt
+          ? {
+              sender: account.address,
+              destination: holderAddress,
+              amount: amount.toFixed(2), // MPTs geralmente usam 2 casas decimais
+              mptokenIssuanceID: mpt.issuanceIdHex, // Formato MPT moderno
+              memo: memo.trim() || undefined,
+            }
+          : {
+              sender: account.address,
+              destination: holderAddress,
+              amount: amount.toFixed(selectedStable.decimals),
+              currency: selectedStable.currency,
+              issuer: selectedStable.issuer,
+              memo: memo.trim() || undefined,
+            };
 
+        const response = await sendMPToken(paymentParams);
         const hash = extractTransactionHash(response);
 
         await registerAction({
           type: 'payout',
-          token: { currency: selectedStable.currency, issuer: selectedStable.issuer },
+          token: mpt
+            ? { mptokenIssuanceID: mpt.issuanceIdHex }
+            : { currency: selectedStable.currency, issuer: selectedStable.issuer },
           actor: account.address,
           target: holderAddress,
           amount: amount.toString(),
@@ -198,6 +344,7 @@ export default function RevenuePage() {
           metadata: {
             memo,
             sourceToken: selectedTokenId,
+            mptId: mpt?.id,
           },
         });
 
@@ -220,7 +367,7 @@ export default function RevenuePage() {
         setIsPaying(false);
       }
     },
-    [account, selectedStable, memo, selectedTokenId],
+    [account, selectedStable, selectedMPT, memo, selectedTokenId],
   );
 
   return (
@@ -230,7 +377,7 @@ export default function RevenuePage() {
       {/* Header com Wallet e Theme Toggle */}
       <div className="fixed top-4 right-4 z-50 flex items-center gap-3">
         <WalletSelector />
-        <ThemeToggle />
+      <ThemeToggle />
       </div>
 
       <div className="container mx-auto px-4 py-8 md:py-12">
@@ -342,6 +489,57 @@ export default function RevenuePage() {
             <div className="mt-4 flex items-start gap-3 p-4 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-700 rounded-xl text-red-700 dark:text-red-300">
               <AlertCircle className="w-5 h-5 mt-1" />
               <p className="text-sm">{crossmarkError}</p>
+            </div>
+          )}
+
+          {/* Saldo XRP e Faucet */}
+          {isConnected && account && (
+            <div className="mt-4 p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-xl border border-yellow-200 dark:border-yellow-800">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <DollarSign className="w-5 h-5 text-yellow-600" />
+                  <span className="font-semibold text-gray-700 dark:text-gray-300">
+                    Saldo XRP: {xrpBalance !== null ? `${xrpBalance.toFixed(2)} XRP` : 'Carregando...'}
+                  </span>
+                </div>
+                {account.network !== 'mainnet' && (
+                  <button
+                    onClick={requestFaucet}
+                    disabled={requestingFaucet}
+                    className="px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg font-semibold text-sm shadow disabled:opacity-50 flex items-center gap-2"
+                  >
+                    {requestingFaucet ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        Solicitando...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-4 h-4" />
+                        Solicitar Faucet
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+              {faucetMessage && (
+                <p className={`text-sm mt-2 ${faucetMessage.includes('Erro') ? 'text-red-500' : 'text-green-600 dark:text-green-400'}`}>
+                  {faucetMessage}
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Informações da Carteira Conectada */}
+          {isConnected && account && (
+            <div className="mt-6">
+              <WalletInfo
+                address={account.address}
+                network={account.network as 'testnet' | 'devnet' | 'mainnet'}
+                label="Crossmark"
+                showHistory={true}
+                compact={false}
+              />
             </div>
           )}
         </motion.section>

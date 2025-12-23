@@ -2,8 +2,19 @@ import crypto from 'crypto';
 
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 12; // GCM recommended 96 bits
+
+/**
+ * Obtém chave de criptografia do ambiente ou usa padrão para desenvolvimento
+ * IMPORTANTE: Em produção, defina WALLET_ENCRYPTION_KEY no .env
+ */
 function getKey() {
-  const secret = 'terra-fi-demo-shared-secret-used-for-encryption';
+  const secret = process.env.WALLET_ENCRYPTION_KEY || 'terra-fi-demo-shared-secret-used-for-encryption';
+  
+  // Log de aviso se usando chave padrão em produção
+  if (process.env.NODE_ENV === 'production' && !process.env.WALLET_ENCRYPTION_KEY) {
+    console.warn('[SECURITY] WALLET_ENCRYPTION_KEY não definida! Usando chave padrão (NÃO SEGURO)');
+  }
+  
   return crypto.createHash('sha256').update(secret).digest();
 }
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, FormEvent } from 'react';
+import { useState, useEffect, useCallback, useRef, FormEvent } from 'react';
 import { motion } from 'framer-motion';
 import {
   Wallet,
@@ -30,6 +30,8 @@ import {
   KeyRound,
   ExternalLink,
   Layers,
+  RefreshCw,
+  Send,
 } from 'lucide-react';
 import Link from 'next/link';
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -145,8 +147,8 @@ export default function Home() {
     setLoadingServiceWallet(true);
     try {
       // Buscar walletId do localStorage
-      const walletId = typeof window !== 'undefined' 
-        ? localStorage.getItem('admin:selectedWalletId') 
+      const walletId = typeof window !== 'undefined'
+        ? localStorage.getItem('admin:selectedWalletId')
         : null;
 
       if (!walletId) {
@@ -176,19 +178,19 @@ export default function Home() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    
+
     // Handler para eventos de storage (mudanças em outras abas/janelas)
     const storageHandler = () => refreshServiceWallet();
-    
+
     // Handler para evento customizado de seleção de carteira
     const walletSelectedHandler = (event: Event) => {
       console.log('[App] Carteira selecionada, recarregando...', event);
       refreshServiceWallet();
     };
-    
+
     window.addEventListener('storage', storageHandler);
     window.addEventListener('walletSelected', walletSelectedHandler);
-    
+
     return () => {
       window.removeEventListener('storage', storageHandler);
       window.removeEventListener('walletSelected', walletSelectedHandler);
@@ -200,41 +202,77 @@ export default function Home() {
   const effectiveWalletId = serviceWallet?.id ?? null;
   const isWalletConnected = Boolean(effectiveAddress);
 
+  // Refs para controle de carregamento e prevenção de race conditions
+  const isLoadingRef = useRef(false);
+  const currentAddressRef = useRef<string | null>(null);
+  const currentNetworkRef = useRef<string | null>(null);
+
   const loadAccountData = useCallback(async () => {
     if (!effectiveAddress) {
       return;
     }
 
-    if (loadingTokens || hasLoadedTokens) {
+    // Evita carregamentos simultâneos usando ref (não causa re-render)
+    if (isLoadingRef.current) {
       return;
     }
 
+    isLoadingRef.current = true;
     setLoadingTokens(true);
     setTokensError(null);
 
+    // Captura o endereço atual para comparar depois
+    const loadingAddress = effectiveAddress;
+    const loadingNetwork = effectiveNetwork;
+
     try {
       const [tokens, balance] = await Promise.all([
-        getAccountMPTokens(effectiveAddress, effectiveNetwork),
-        getXRPBalance(effectiveAddress, effectiveNetwork),
+        getAccountMPTokens(loadingAddress, loadingNetwork),
+        getXRPBalance(loadingAddress, loadingNetwork),
       ]);
 
-      setMptokens(tokens);
-      setXrpBalance(balance);
-      setHasLoadedTokens(true);
+      // Só atualiza se ainda for a mesma carteira (evita race condition)
+      if (currentAddressRef.current === loadingAddress && currentNetworkRef.current === loadingNetwork) {
+        setMptokens(tokens);
+        setXrpBalance(balance);
+        setHasLoadedTokens(true);
+      }
     } catch (error) {
       console.error('Erro ao carregar dados da conta XRPL:', error);
-      setTokensError('Não foi possível carregar os dados da conta na XRPL.');
-      setMptokens([]);
-      setXrpBalance(null);
-      setHasLoadedTokens(true);
+      if (currentAddressRef.current === loadingAddress) {
+        setTokensError('Não foi possível carregar os dados da conta na XRPL.');
+        setMptokens([]);
+        setXrpBalance(null);
+        setHasLoadedTokens(true);
+      }
     } finally {
+      isLoadingRef.current = false;
       setLoadingTokens(false);
     }
-  }, [effectiveAddress, effectiveNetwork, loadingTokens, hasLoadedTokens]);
-
-  useEffect(() => {
-    setHasLoadedTokens(false);
   }, [effectiveAddress, effectiveNetwork]);
+
+  // Efeito para detectar mudança de carteira e carregar dados
+  useEffect(() => {
+    const addressChanged = currentAddressRef.current !== effectiveAddress;
+    const networkChanged = currentNetworkRef.current !== effectiveNetwork;
+
+    if (addressChanged || networkChanged) {
+      // Atualiza refs
+      currentAddressRef.current = effectiveAddress;
+      currentNetworkRef.current = effectiveNetwork;
+
+      // Limpa dados antigos
+      setXrpBalance(null);
+      setMptokens([]);
+      setHasLoadedTokens(false);
+      setTokensError(null);
+
+      // Carrega novos dados se tiver endereço
+      if (effectiveAddress) {
+        loadAccountData();
+      }
+    }
+  }, [effectiveAddress, effectiveNetwork, loadAccountData]);
 
   const handleConnect = useCallback(async () => {
     console.log('[App] handleConnect chamado');
@@ -267,7 +305,7 @@ export default function Home() {
       window.dispatchEvent(new CustomEvent('walletDeselected'));
       window.dispatchEvent(new Event('storage'));
     }
-    
+
     // Limpa estado
     setServiceWallet(null);
     setMptokens([]);
@@ -380,7 +418,7 @@ export default function Home() {
               memo: `Investimento: ${investment.project?.name || 'Projeto'} - ${data.tokenDistribution.tokenAmount} tokens`,
             });
 
-            const txHash = 
+            const txHash =
               (tokenResponse as any)?.hash ??
               (tokenResponse as any)?.result?.hash ??
               (tokenResponse as any)?.result?.tx_json?.hash ??
@@ -434,7 +472,8 @@ export default function Home() {
       if (adminTab === 'investments') {
         fetchAdminInvestments();
       }
-      if (adminTab === 'mpts') {
+      // Carregar MPTs na aba de projetos (merge) ou na aba de MPTs
+      if (adminTab === 'mpts' || adminTab === 'projects') {
         fetchMptIssuances();
       }
     }
@@ -451,7 +490,7 @@ export default function Home() {
       const response = await fetch('/api/investments', {
         credentials: 'include',
       });
-      
+
       if (response.ok) {
         const data = await response.json();
         setInvestmentProjects(Array.isArray(data) ? data : []);
@@ -479,10 +518,11 @@ export default function Home() {
   useEffect(() => {
     if (!session && investorTab === 'investments') {
       setInvestorTab('available-tokens');
-    } else if (session && !isConnected && investorTab === 'my-tokens') {
+    } else if (session && !isWalletConnected && investorTab === 'my-tokens') {
+      // Se não há carteira conectada (Crossmark ou ServiceWallet), muda para aba de tokens disponíveis
       setInvestorTab('available-tokens');
     }
-  }, [session, isConnected, investorTab]);
+  }, [session, isWalletConnected, investorTab]);
 
   // Carrega investimentos disponíveis quando estiver na aba
   useEffect(() => {
@@ -517,8 +557,11 @@ export default function Home() {
         }
       };
       loadAvailableTokens();
+
+      // Também carrega os MPT issuances para exibir na seção de tokens
+      fetchMptIssuances();
     }
-  }, [investorTab]);
+  }, [investorTab, fetchMptIssuances]);
 
   // Verifica se investimento está mockado (valores hardcoded)
   const isInvestmentMocked = useCallback(() => {
@@ -526,147 +569,224 @@ export default function Home() {
     const MOCK_DESTINATION_WALLET = 'rN7n7otQDd6FczFgLdSqtcsAUxDkw6fzRH';
     // Taxa de conversão hardcoded (mock)
     const MOCK_XRP_TO_BRL = 2.5;
-    
+
     // Verifica se está usando valores mockados
     const isMockWallet = true; // Sempre mockado até adicionar campo no projeto
     const isMockRate = true; // Sempre mockado até integrar com oráculo de preço
-    
+
     return isMockWallet || isMockRate;
   }, []);
 
+  // Função auxiliar para solicitar faucet
+  const requestFaucet = useCallback(async (address: string, network: string): Promise<boolean> => {
+    if (network === 'mainnet') {
+      console.warn('[Faucet] Não disponível na mainnet');
+      return false;
+    }
+
+    const faucetUrls: Record<string, string> = {
+      testnet: 'https://faucet.altnet.rippletest.net/accounts',
+      devnet: 'https://faucet.devnet.rippletest.net/accounts',
+    };
+
+    const faucetUrl = faucetUrls[network];
+    if (!faucetUrl) {
+      console.warn('[Faucet] Rede não suportada:', network);
+      return false;
+    }
+
+    try {
+      console.log(`[Faucet] Solicitando XRP para ${address} na ${network}...`);
+      const response = await fetch(faucetUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          destination: address,
+          xrpAmount: '1000',
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[Faucet] Erro ${response.status}:`, errorText);
+        return false;
+      }
+
+      const data = await response.json();
+      console.log('[Faucet] Sucesso:', data);
+      return true;
+    } catch (error) {
+      console.error('[Faucet] Erro:', error);
+      return false;
+    }
+  }, []);
+
   const handleInvest = useCallback(async (projectId: string, amount: number) => {
-    if (!isConnected || !account) {
+    if (!isWalletConnected || !effectiveAddress) {
       alert('Você precisa conectar sua carteira para investir');
       return;
     }
 
-    // Verifica se está mockado (mantido para referência, mas não bloqueia mais)
-    // if (isInvestmentMocked()) {
-    //   alert('Investimento temporariamente desabilitado. Sistema em configuração.');
-    //   return;
-    // }
-
     // Busca informações do projeto para obter wallet de destino
-    const project = availableTokens.find(p => p.id === projectId) || 
-                   investmentProjects.find(p => p.id === projectId);
-    
+    const project = availableTokens.find(p => p.id === projectId) ||
+      investmentProjects.find(p => p.id === projectId) ||
+      mptIssuances.find(p => (p.id === projectId || p.mptokenIssuanceID === projectId));
+
     if (!project) {
       alert('Projeto não encontrado');
       return;
     }
 
     // Taxa de conversão R$ para XRP (pode ser configurável depois)
-    // Exemplo: 1 XRP = R$ 2,50 (ajuste conforme necessário)
     const XRP_TO_BRL = 2.5;
     const xrpAmount = amount / XRP_TO_BRL;
 
-    // Verifica saldo XRP
+    // Verifica saldo XRP e solicita faucet se necessário (testnet/devnet)
     if (xrpBalance !== null && xrpBalance < xrpAmount) {
-      alert(`Saldo insuficiente. Você tem ${xrpBalance.toFixed(2)} XRP, mas precisa de ${xrpAmount.toFixed(2)} XRP.`);
-      return;
+      if (effectiveNetwork !== 'mainnet') {
+        const confirmFaucet = confirm(
+          `Saldo insuficiente (${xrpBalance.toFixed(2)} XRP). Deseja solicitar XRP do faucet da ${effectiveNetwork}?`
+        );
+
+        if (confirmFaucet) {
+          const faucetSuccess = await requestFaucet(effectiveAddress, effectiveNetwork);
+          if (faucetSuccess) {
+            alert('Faucet enviado! Aguarde alguns segundos e tente novamente.');
+            // Recarrega o saldo
+            await loadAccountData();
+            return;
+          } else {
+            alert('Não foi possível obter XRP do faucet. Tente novamente mais tarde.');
+            return;
+          }
+        } else {
+          return;
+        }
+      } else {
+        alert(`Saldo insuficiente. Você tem ${xrpBalance.toFixed(2)} XRP, mas precisa de ${xrpAmount.toFixed(2)} XRP.`);
+        return;
+      }
     }
 
     // Wallet de destino (pode ser do projeto ou uma wallet central)
-    // Por enquanto, usando uma wallet de teste - deve ser configurada no projeto
-    // TODO: Adicionar campo walletAddress no InvestmentProject
     const destinationWallet = 'rN7n7otQDd6FczFgLdSqtcsAUxDkw6fzRH'; // Wallet de destino padrão
 
     try {
-      // 1. Envia XRP primeiro
-      const { sendXRPPayment } = await import('@/lib/crossmark/transactions');
-      
-      const paymentResponse = await sendXRPPayment({
-        sender: account.address,
-        destination: destinationWallet,
-        amount: xrpAmount.toString(), // Em XRP
-        memo: `Investimento: ${project.name} - R$ ${amount.toFixed(2)}`,
-      });
+      let txHash: string | null = null;
 
-      // Usa função utilitária para extrair hash
-      const { extractTransactionHash } = await import('@/lib/crossmark/transactions');
-      
-      // Log da resposta para debug
-      console.log('[Investimento] Resposta do pagamento:', paymentResponse);
-      
-      // Tenta extrair hash
-      let txHash = extractTransactionHash(paymentResponse);
-      
-      // Se não encontrou, tenta explorar a estrutura manualmente
-      if (!txHash) {
-        const responseObj = paymentResponse as any;
-        
-        // Explora estrutura response.response.data...
-        if (responseObj?.response) {
-          const innerResponse = responseObj.response;
-          
-          // Tenta múltiplos caminhos
-          txHash = 
-            innerResponse?.data?.hash ??
-            innerResponse?.data?.result?.hash ??
-            innerResponse?.data?.result?.tx_json?.hash ??
-            innerResponse?.hash ??
-            innerResponse?.result?.hash ??
-            null;
-          
-          // Se ainda não encontrou, tenta usar função recursiva avançada
-          if (!txHash) {
-            try {
-              const { extractHashRecursive } = await import('@/lib/crossmark/hash-extractor');
-              txHash = extractHashRecursive(innerResponse);
-              if (txHash) {
-                console.log('[Investimento] Hash encontrado via busca recursiva:', txHash);
+      // Verifica se é ServiceWallet ou Crossmark
+      if (serviceWallet) {
+        // Usa API de pagamento para ServiceWallet
+        console.log('[Investimento] Usando ServiceWallet para pagamento...');
+
+        const paymentResponse = await fetch('/api/xrpl/payment', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            walletId: serviceWallet.id,
+            destination: destinationWallet,
+            amount: xrpAmount.toString(),
+            isXRP: true,
+            memo: `Investimento: ${project.name} - R$ ${amount.toFixed(2)}`,
+          }),
+        });
+
+        const paymentData = await paymentResponse.json();
+
+        if (!paymentResponse.ok) {
+          throw new Error(paymentData.error || 'Erro ao enviar pagamento');
+        }
+
+        txHash = paymentData.txHash;
+        console.log('[Investimento] Pagamento via ServiceWallet:', txHash);
+      } else if (isConnected && account) {
+        // Usa Crossmark para pagamento
+        console.log('[Investimento] Usando Crossmark para pagamento...');
+
+        const { sendXRPPayment, extractTransactionHash } = await import('@/lib/crossmark/transactions');
+
+        const paymentResponse = await sendXRPPayment({
+          sender: account.address,
+          destination: destinationWallet,
+          amount: xrpAmount.toString(),
+          memo: `Investimento: ${project.name} - R$ ${amount.toFixed(2)}`,
+        });
+
+        console.log('[Investimento] Resposta do Crossmark:', paymentResponse);
+        txHash = extractTransactionHash(paymentResponse);
+
+        // Se não encontrou, tenta explorar a estrutura manualmente
+        if (!txHash) {
+          const responseObj = paymentResponse as any;
+
+          if (responseObj?.response) {
+            const innerResponse = responseObj.response;
+            txHash =
+              innerResponse?.data?.hash ??
+              innerResponse?.data?.result?.hash ??
+              innerResponse?.data?.result?.tx_json?.hash ??
+              innerResponse?.hash ??
+              innerResponse?.result?.hash ??
+              null;
+
+            if (!txHash) {
+              try {
+                const { extractHashRecursive } = await import('@/lib/crossmark/hash-extractor');
+                txHash = extractHashRecursive(innerResponse);
+              } catch (error) {
+                console.warn('[Investimento] Erro ao usar busca recursiva:', error);
               }
-            } catch (error) {
-              console.warn('[Investimento] Erro ao usar busca recursiva:', error);
             }
           }
         }
+      } else {
+        throw new Error('Nenhuma carteira conectada');
       }
 
       if (!txHash) {
-        // Log detalhado para debug
-        const responseObj = paymentResponse as any;
-        console.error('[Investimento] Não foi possível extrair hash. Resposta completa:', {
-          response: paymentResponse,
-          type: typeof paymentResponse,
-          keys: paymentResponse && typeof paymentResponse === 'object' ? Object.keys(paymentResponse) : null,
-          responseStructure: responseObj?.response ? {
-            keys: Object.keys(responseObj.response),
-            data: responseObj.response.data,
-            result: responseObj.response.result,
-          } : null,
-        });
-        
-        // Tenta extrair informações úteis para o usuário
-        const errorMessage = 
-          responseObj?.response?.data?.result?.engine_result_message ??
-          responseObj?.response?.data?.message ??
-          responseObj?.response?.message ??
-          responseObj?.data?.result?.engine_result_message ??
-          responseObj?.data?.message ??
-          responseObj?.message ??
-          'Não foi possível obter o hash da transação. Verifique o console para mais detalhes.';
-        
-        throw new Error(errorMessage);
+        throw new Error('Não foi possível obter o hash da transação');
       }
-      
+
       console.log('[Investimento] Hash extraído com sucesso:', txHash);
 
-      // 2. Após pagamento confirmado, registra no banco
-      const response = await fetch('/api/investments', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({ 
-          projectId, 
-          amount,
-          walletAddress: account.address,
-          txHash, // Hash da transação XRP
-          xrpAmount, // Valor em XRP enviado
-        }),
-      });
+      // Registra no banco
+      let response;
+
+      // Verifica se é um MPT para chamar a rota de mint
+      const isMPT = Boolean((project as any).mptokenIssuanceID || (project as any).tokenType);
+
+      if (isMPT) {
+        console.log('[Investimento] Detectado Token MPT. Iniciando Mint...');
+        // Calcular quantidade de tokens (Mock: R$ 10,00 por token)
+        const tokenPrice = 10;
+        const tokensToMint = Math.floor(amount / tokenPrice);
+
+        response = await fetch('/api/mpt/mint', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            holderAddress: effectiveAddress,
+            mptokenIssuanceID: project.mptokenIssuanceID || project.id, // ID deve ser o ID da emissão
+            amount: tokensToMint.toString(),
+            issuerAddress: (project as any).issuer, // Tenta pegar do objeto
+            network: effectiveNetwork
+          }),
+        });
+      } else {
+        // Projeto de Investimento Padrão
+        response = await fetch('/api/investments', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            projectId,
+            amount,
+            walletAddress: effectiveAddress,
+            txHash,
+            xrpAmount,
+          }),
+        });
+      }
 
       if (!response.ok) {
         const error = await response.json();
@@ -685,33 +805,10 @@ export default function Home() {
       alert(error.message || 'Erro ao realizar investimento');
       throw error;
     }
-  }, [isConnected, account, xrpBalance, availableTokens, investmentProjects, fetchInvestmentProjects]);
+  }, [isWalletConnected, effectiveAddress, effectiveNetwork, serviceWallet, isConnected, account, xrpBalance, availableTokens, investmentProjects, fetchInvestmentProjects, requestFaucet, loadAccountData]);
 
-  // Carregar dados quando Crossmark conecta
-  useEffect(() => {
-    if (isConnected && account && !hasLoadedTokens) {
-      // Carrega apenas uma vez quando conecta e ainda não carregou
-      loadAccountData();
-    } else if (!isConnected || !account) {
-      // Reset quando desconecta
-      setMptokens([]);
-      setXrpBalance(null);
-      setTokensError(null);
-      setNoTokensDismissed(false);
-      setHasLoadedTokens(false);
-    }
-  }, [isConnected, account, hasLoadedTokens, loadAccountData]);
-
-  // Carregar dados quando carteira do protocolo é selecionada
-  useEffect(() => {
-    if (serviceWallet && !hasLoadedTokens && !loadingTokens) {
-      console.log('[App] Carteira do protocolo selecionada, carregando dados...', {
-        address: serviceWallet.address,
-        network: serviceWallet.network,
-      });
-      loadAccountData();
-    }
-  }, [serviceWallet, hasLoadedTokens, loadingTokens, loadAccountData]);
+  // Nota: O carregamento de dados agora é tratado pelo useEffect consolidado
+  // que detecta mudanças em effectiveAddress e effectiveNetwork (linhas ~265-280)
 
   useEffect(() => {
     if (mptokens.length > 0) {
@@ -957,7 +1054,7 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-100 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 transition-colors duration-300 relative overflow-hidden">
       <BackgroundParticles />
-      
+
       {/* Header com Wallet e Theme Toggle */}
       <div className="fixed top-4 right-4 z-50 flex items-center gap-3">
         <WalletSelector />
@@ -1197,7 +1294,7 @@ export default function Home() {
                 </div>
               )}
 
-              {isConnected && account && (
+              {isWalletConnected && (
                 <motion.div
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -1213,7 +1310,7 @@ export default function Home() {
                       </p>
                     </div>
                     <p className="text-xl font-bold text-gray-800 dark:text-white capitalize">
-                      {account.network}
+                      {effectiveNetwork}
                     </p>
                   </div>
                   {xrpBalance !== null && (
@@ -1235,249 +1332,295 @@ export default function Home() {
               )}
 
               {/* Abas do Investidor - só aparecem quando wallet está conectada */}
-              {isConnected && (
+              {isWalletConnected && (
                 <div className="mt-12 pt-8 border-t border-gray-200 dark:border-gray-700">
                   <div className="flex gap-2 mb-8 bg-gray-100 dark:bg-gray-800/50 p-1.5 rounded-2xl border border-gray-200 dark:border-gray-700">
+                    <motion.button
+                      onClick={() => setInvestorTab('available-tokens')}
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      className={`flex-1 px-4 py-3 font-semibold transition-all duration-300 rounded-xl ${investorTab === 'available-tokens'
+                        ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg'
+                        : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
+                        }`}
+                    >
+                      <div className="flex items-center justify-center gap-2">
+                        <TrendingUp className="w-5 h-5" />
+                        Investimentos
+                      </div>
+                    </motion.button>
+                    <motion.button
+                      onClick={() => setInvestorTab('my-tokens')}
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      className={`flex-1 px-4 py-3 font-semibold transition-all duration-300 rounded-xl ${investorTab === 'my-tokens'
+                        ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg'
+                        : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
+                        }`}
+                    >
+                      <div className="flex items-center justify-center gap-2">
+                        <Coins className="w-5 h-5" />
+                        Meus Tokens
+                      </div>
+                    </motion.button>
+                    {session && (
                       <motion.button
-                        onClick={() => setInvestorTab('available-tokens')}
+                        onClick={() => setInvestorTab('investments')}
                         whileHover={{ scale: 1.02 }}
                         whileTap={{ scale: 0.98 }}
-                        className={`flex-1 px-4 py-3 font-semibold transition-all duration-300 rounded-xl ${
-                          investorTab === 'available-tokens'
-                            ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg'
-                            : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
-                        }`}
+                        className={`flex-1 px-4 py-3 font-semibold transition-all duration-300 rounded-xl ${investorTab === 'investments'
+                          ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg'
+                          : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
+                          }`}
                       >
                         <div className="flex items-center justify-center gap-2">
                           <TrendingUp className="w-5 h-5" />
-                          Investimentos
+                          Meus Investimentos
                         </div>
                       </motion.button>
-                      <motion.button
-                        onClick={() => setInvestorTab('my-tokens')}
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                        className={`flex-1 px-4 py-3 font-semibold transition-all duration-300 rounded-xl ${
-                          investorTab === 'my-tokens'
-                            ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg'
-                            : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
-                        }`}
-                      >
-                        <div className="flex items-center justify-center gap-2">
-                          <Coins className="w-5 h-5" />
-                          Meus Tokens
-                        </div>
-                      </motion.button>
-                      {session && (
-                        <motion.button
-                          onClick={() => setInvestorTab('investments')}
-                          whileHover={{ scale: 1.02 }}
-                          whileTap={{ scale: 0.98 }}
-                          className={`flex-1 px-4 py-3 font-semibold transition-all duration-300 rounded-xl ${
-                            investorTab === 'investments'
-                              ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg'
-                              : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
-                          }`}
-                        >
-                          <div className="flex items-center justify-center gap-2">
-                            <TrendingUp className="w-5 h-5" />
-                            Meus Investimentos
+                    )}
+                  </div>
+
+                  {/* Conteúdo da aba Investimentos */}
+                  {investorTab === 'investments' && (
+                    <div>
+                      {isSessionPending ? (
+                        <div className="flex justify-center py-12">
+                          <div className="text-center">
+                            <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+                            <p className="text-gray-600 dark:text-gray-300">Verificando autenticação...</p>
                           </div>
-                        </motion.button>
-                      )}
-                  </div>
-
-                {/* Conteúdo da aba Investimentos */}
-                {investorTab === 'investments' && (
-                  <div>
-                    {isSessionPending ? (
-                      <div className="flex justify-center py-12">
-                        <div className="text-center">
-                          <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-                          <p className="text-gray-600 dark:text-gray-300">Verificando autenticação...</p>
                         </div>
-                      </div>
-                    ) : !session ? (
-                      <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-xl p-8 text-center">
-                        <Info className="w-12 h-12 text-blue-500 dark:text-blue-400 mx-auto mb-4" />
-                        <p className="text-blue-700 dark:text-blue-300 text-lg mb-4">
-                          Você precisa estar logado para ver os projetos de investimento.
-                        </p>
-                        <Link
-                          href="/auth/signin"
-                          className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold transition-all duration-300"
+                      ) : !session ? (
+                        <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-xl p-8 text-center">
+                          <Info className="w-12 h-12 text-blue-500 dark:text-blue-400 mx-auto mb-4" />
+                          <p className="text-blue-700 dark:text-blue-300 text-lg mb-4">
+                            Você precisa estar logado para ver os projetos de investimento.
+                          </p>
+                          <Link
+                            href="/auth/signin"
+                            className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold transition-all duration-300"
+                          >
+                            Fazer Login
+                            <ArrowRight className="w-5 h-5" />
+                          </Link>
+                        </div>
+                      ) : loadingInvestments ? (
+                        <div className="flex justify-center py-12">
+                          <div className="text-center">
+                            <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+                            <p className="text-gray-600 dark:text-gray-300">Carregando projetos de investimento...</p>
+                          </div>
+                        </div>
+                      ) : investmentProjects.length === 0 ? (
+                        <motion.div
+                          initial={{ opacity: 0, scale: 0.95 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          className="bg-white dark:bg-gray-800/90 rounded-3xl shadow-xl p-12 text-center border border-gray-200 dark:border-gray-700 backdrop-blur-sm"
                         >
-                          Fazer Login
-                          <ArrowRight className="w-5 h-5" />
-                        </Link>
-                      </div>
-                    ) : loadingInvestments ? (
-                      <div className="flex justify-center py-12">
-                        <div className="text-center">
-                          <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-                          <p className="text-gray-600 dark:text-gray-300">Carregando projetos de investimento...</p>
+                          <div className="w-20 h-20 bg-gradient-to-br from-blue-100 to-purple-100 dark:from-blue-900/30 dark:to-purple-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <TrendingUp className="w-10 h-10 text-blue-500 dark:text-blue-400" />
+                          </div>
+                          <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-2">
+                            Nenhum projeto de investimento
+                          </h3>
+                          <p className="text-gray-600 dark:text-gray-300">
+                            Você ainda não possui investimentos registrados.
+                          </p>
+                        </motion.div>
+                      ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          {investmentProjects.map((project) => (
+                            <InvestmentCard
+                              key={project.id}
+                              project={project}
+                              onInvest={handleInvest}
+                              isMocked={isInvestmentMocked()}
+                            />
+                          ))}
                         </div>
-                      </div>
-                    ) : investmentProjects.length === 0 ? (
-                      <motion.div
-                        initial={{ opacity: 0, scale: 0.95 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        className="bg-white dark:bg-gray-800/90 rounded-3xl shadow-xl p-12 text-center border border-gray-200 dark:border-gray-700 backdrop-blur-sm"
-                      >
-                        <div className="w-20 h-20 bg-gradient-to-br from-blue-100 to-purple-100 dark:from-blue-900/30 dark:to-purple-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
-                          <TrendingUp className="w-10 h-10 text-blue-500 dark:text-blue-400" />
-                        </div>
-                        <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-2">
-                          Nenhum projeto de investimento
-                        </h3>
-                        <p className="text-gray-600 dark:text-gray-300">
-                          Você ainda não possui investimentos registrados.
-                        </p>
-                      </motion.div>
-                    ) : (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {investmentProjects.map((project) => (
-                          <InvestmentCard
-                            key={project.id}
-                            project={project}
-                            onInvest={handleInvest}
-                            isMocked={isInvestmentMocked()}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
+                      )}
+                    </div>
+                  )}
 
-                {/* Conteúdo da aba Meus Tokens */}
-                {investorTab === 'my-tokens' && (
-                  <div>
-                    {!isConnected ? (
-                      <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-                        <Coins className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                        <p>Conecte sua carteira para ver seus tokens</p>
-                      </div>
-                    ) : loadingTokens ? (
-                      <div className="flex justify-center py-8">
-                        <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                      </div>
-                    ) : tokensError ? (
-                      <div className="flex items-start gap-3 p-4 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-700 rounded-lg text-red-700 dark:text-red-300">
-                        <AlertCircle className="w-5 h-5 mt-1" />
-                        <p className="text-sm">{tokensError}</p>
-                      </div>
-                    ) : mptokens.length > 0 ? (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {mptokens.map((token, index) => {
-                          const tokenType = token.currency?.slice(0, 4) || 'MPT';
-                          const TokenIcon = typeIcons[tokenType as keyof typeof typeIcons] || Coins;
-                          const tokenColor = typeColors[tokenType as keyof typeof typeColors] || 'from-blue-400 to-blue-600';
-                          
-                          return (
-                            <motion.div
-                              key={`${token.currency}-${token.issuer}-${index}`}
-                              initial={{ opacity: 0, y: 20 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              transition={{ delay: index * 0.1 }}
-                              whileHover={{ scale: 1.02, y: -2 }}
-                              className="group relative p-5 bg-white dark:bg-gray-800/90 rounded-2xl border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 hover:shadow-xl transition-all duration-300 overflow-hidden backdrop-blur-sm"
-                            >
-                              <div className={`absolute inset-0 bg-gradient-to-br ${tokenColor} opacity-0 group-hover:opacity-5 transition-opacity duration-300`} />
-                              <div className="relative flex items-center justify-between">
-                                <div className="flex items-center gap-4 flex-1 min-w-0">
-                                  <div className={`p-3 bg-gradient-to-br ${tokenColor} rounded-xl shadow-lg`}>
-                                    <TokenIcon className="w-6 h-6 text-white" />
+                  {/* Conteúdo da aba Meus Tokens */}
+                  {investorTab === 'my-tokens' && (
+                    <div>
+                      {!isWalletConnected ? (
+                        <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                          <Coins className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                          <p>Conecte sua carteira para ver seus tokens</p>
+                        </div>
+                      ) : loadingTokens ? (
+                        <div className="flex justify-center py-8">
+                          <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                        </div>
+                      ) : tokensError ? (
+                        <div className="flex items-start gap-3 p-4 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-700 rounded-lg text-red-700 dark:text-red-300">
+                          <AlertCircle className="w-5 h-5 mt-1" />
+                          <p className="text-sm">{tokensError}</p>
+                        </div>
+                      ) : mptokens.length > 0 ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {mptokens.map((token, index) => {
+                            const tokenType = token.currency?.slice(0, 4) || 'MPT';
+                            const TokenIcon = typeIcons[tokenType as keyof typeof typeIcons] || Coins;
+                            const tokenColor = typeColors[tokenType as keyof typeof typeColors] || 'from-blue-400 to-blue-600';
+
+                            return (
+                              <motion.div
+                                key={`${token.currency}-${token.issuer}-${index}`}
+                                initial={{ opacity: 0, y: 20 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ delay: index * 0.1 }}
+                                whileHover={{ scale: 1.02, y: -2 }}
+                                className="group relative p-5 bg-white dark:bg-gray-800/90 rounded-2xl border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 hover:shadow-xl transition-all duration-300 overflow-hidden backdrop-blur-sm"
+                              >
+                                <div className={`absolute inset-0 bg-gradient-to-br ${tokenColor} opacity-0 group-hover:opacity-5 transition-opacity duration-300`} />
+                                <div className="relative flex items-center justify-between">
+                                  <div className="flex items-center gap-4 flex-1 min-w-0">
+                                    <div className={`p-3 bg-gradient-to-br ${tokenColor} rounded-xl shadow-lg`}>
+                                      <TokenIcon className="w-6 h-6 text-white" />
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <p className="font-bold text-lg text-gray-800 dark:text-white mb-1 truncate">
+                                        {token.currency}
+                                      </p>
+                                      <p className="text-xs text-gray-500 dark:text-gray-400 font-mono truncate">
+                                        {token.issuer ? `${token.issuer.slice(0, 10)}...${token.issuer.slice(-6)}` : 'N/A'}
+                                      </p>
+                                    </div>
                                   </div>
-                                  <div className="flex-1 min-w-0">
-                                    <p className="font-bold text-lg text-gray-800 dark:text-white mb-1 truncate">
-                                      {token.currency}
+                                  <div className="text-right ml-4">
+                                    <p className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 dark:from-blue-400 dark:to-purple-400 bg-clip-text text-transparent">
+                                      {parseFloat(token.balance).toLocaleString('pt-BR', {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 6,
+                                      })}
                                     </p>
-                                    <p className="text-xs text-gray-500 dark:text-gray-400 font-mono truncate">
-                                      {token.issuer.slice(0, 10)}...{token.issuer.slice(-6)}
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                      tokens
                                     </p>
                                   </div>
                                 </div>
-                                <div className="text-right ml-4">
-                                  <p className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 dark:from-blue-400 dark:to-purple-400 bg-clip-text text-transparent">
-                                    {parseFloat(token.balance).toLocaleString('pt-BR', {
-                                      minimumFractionDigits: 2,
-                                      maximumFractionDigits: 6,
-                                    })}
-                                  </p>
-                                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                    tokens
-                                  </p>
-                                </div>
-                              </div>
-                            </motion.div>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-                        <Coins className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                        <p>Nenhum token MPT encontrado</p>
-                      </div>
-                    )}
-                  </div>
-                )}
+                              </motion.div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                          <Coins className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                          <p>Nenhum token MPT encontrado</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
-                {/* Conteúdo da aba Investimentos Disponíveis */}
-                {investorTab === 'available-tokens' && (
-                  <div>
-                    {loadingAvailableTokens ? (
-                      <div className="flex justify-center py-12">
-                        <div className="text-center">
-                          <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-                          <p className="text-gray-600 dark:text-gray-300">Carregando investimentos disponíveis...</p>
+                  {/* Conteúdo da aba Investimentos Disponíveis */}
+                  {investorTab === 'available-tokens' && (
+                    <div>
+                      {loadingAvailableTokens ? (
+                        <div className="flex justify-center py-12">
+                          <div className="text-center">
+                            <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+                            <p className="text-gray-600 dark:text-gray-300">Carregando investimentos disponíveis...</p>
+                          </div>
                         </div>
-                      </div>
-                    ) : availableTokens.length > 0 ? (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {availableTokens.map((project) => (
-                          <InvestmentCard
-                            key={project.id || `${project.currency}-${project.issuer}`}
-                            project={{
-                              id: project.id || '',
-                              name: project.name,
-                              type: project.currency,
-                              purpose: project.purpose,
-                              example: project.example || '',
-                              minAmount: project.minAmount || 0,
-                              maxAmount: project.maxAmount || 0,
-                              targetAmount: project.targetAmount || 0,
-                              totalAmount: project.totalAmount || 0,
-                              status: 'published',
-                            }}
-                            onInvest={handleInvest}
-                            isMocked={isInvestmentMocked()}
-                          />
-                        ))}
-                      </div>
-                    ) : (
-                      <motion.div
-                        initial={{ opacity: 0, scale: 0.95 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        className="bg-white dark:bg-gray-800/90 rounded-3xl shadow-xl p-12 text-center border border-gray-200 dark:border-gray-700 backdrop-blur-sm"
-                      >
-                        <div className="w-20 h-20 bg-gradient-to-br from-blue-100 to-purple-100 dark:from-blue-900/30 dark:to-purple-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
-                          <TrendingUp className="w-10 h-10 text-blue-500 dark:text-blue-400" />
+                      ) : availableTokens.length > 0 ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          {availableTokens.map((project) => (
+                            <InvestmentCard
+                              key={project.id || `${project.currency}-${project.issuer}`}
+                              project={{
+                                id: project.id || '',
+                                name: project.name,
+                                type: project.currency,
+                                purpose: project.purpose,
+                                example: project.example || '',
+                                minAmount: project.minAmount || 0,
+                                maxAmount: project.maxAmount || 0,
+                                targetAmount: project.targetAmount || 0,
+                                totalAmount: project.totalAmount || 0,
+                                status: 'published',
+                              }}
+                              onInvest={handleInvest}
+                              isMocked={isInvestmentMocked()}
+                            />
+                          ))}
                         </div>
-                        <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-2">
-                          Nenhum investimento disponível
-                        </h3>
-                        <p className="text-gray-600 dark:text-gray-300">
-                          Novos projetos de investimento serão adicionados em breve.
-                        </p>
-                      </motion.div>
-                    )}
-                  </div>
-                )}
+                      ) : (
+                        <motion.div
+                          initial={{ opacity: 0, scale: 0.95 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          className="bg-white dark:bg-gray-800/90 rounded-3xl shadow-xl p-12 text-center border border-gray-200 dark:border-gray-700 backdrop-blur-sm"
+                        >
+                          <div className="w-20 h-20 bg-gradient-to-br from-blue-100 to-purple-100 dark:from-blue-900/30 dark:to-purple-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <TrendingUp className="w-10 h-10 text-blue-500 dark:text-blue-400" />
+                          </div>
+                          <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-2">
+                            Nenhum investimento disponível
+                          </h3>
+                          <p className="text-gray-600 dark:text-gray-300">
+                            Novos projetos de investimento serão adicionados em breve.
+                          </p>
+                        </motion.div>
+                      )}
+
+                      {/* Seção de Tokens MPT Disponíveis */}
+                      {mptIssuances.length > 0 && (
+                        <div className="mt-10">
+                          <div className="flex items-center gap-3 mb-6">
+                            <div className="p-2 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-xl">
+                              <Layers className="w-6 h-6 text-white" />
+                            </div>
+                            <h3 className="text-xl font-bold text-gray-800 dark:text-white">
+                              Tokens MPT Disponíveis
+                            </h3>
+                            <span className="px-3 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 text-sm font-semibold rounded-full">
+                              {mptIssuances.length} token{mptIssuances.length !== 1 ? 's' : ''}
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {mptIssuances.map((mpt, index) => {
+                              const tokenType = mpt.tokenType?.toUpperCase() || mpt.type?.toUpperCase() || 'MPT';
+                              const TokenIcon = typeIcons[tokenType as keyof typeof typeIcons] || Coins;
+                              const tokenColor = typeColors[tokenType as keyof typeof typeColors] || 'from-purple-400 to-purple-600';
+
+                              return (
+                                <InvestmentCard
+                                  key={mpt.id || mpt.mptokenIssuanceID || index}
+                                  project={{
+                                    id: mpt.id || mpt.mptokenIssuanceID || '',
+                                    name: mpt.ticker || mpt.currency || mpt.name || 'Token MPT',
+                                    type: mpt.currency || tokenType,
+                                    purpose: mpt.metadata?.description || `Token MPT do tipo ${tokenType} disponível para investimento`,
+                                    // Mock de preço para visualização
+                                    example: `1 token = R$ 10,00`,
+                                    minAmount: 1,
+                                    maxAmount: mpt.maximumAmount ? parseInt(mpt.maximumAmount, 10) : 1000000,
+                                    // Mock de meta financeira baseado no supply maximo * R$ 10
+                                    targetAmount: mpt.maximumAmount ? parseInt(mpt.maximumAmount, 10) * 10 : 100000,
+                                    // Mock de arrecadação (0 por enquanto)
+                                    totalAmount: 0,
+                                    status: 'published',
+                                    // Adiciona ID original para logica de investimento
+                                    // investmentType: 'mpt_direct'
+                                  }}
+                                  onInvest={handleInvest}
+                                  isMocked={isInvestmentMocked()}
+                                />
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
               {/* Animated Wallet Icon - só aparece quando não está logado nem conectado */}
-              {!session && !isConnected && (
+              {!session && !isWalletConnected && (
                 <div className="mt-8 flex justify-center">
                   <motion.div
                     initial={{ opacity: 0, scale: 0.8 }}
@@ -1644,31 +1787,28 @@ export default function Home() {
             <div className="flex flex-wrap gap-2 md:gap-4 mb-6 border-b border-gray-200 dark:border-gray-700">
               <button
                 onClick={() => setAdminTab('projects')}
-                className={`px-4 py-2 font-semibold transition-all duration-300 border-b-2 ${
-                  adminTab === 'projects'
-                    ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
-                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
-                }`}
+                className={`px-4 py-2 font-semibold transition-all duration-300 border-b-2 ${adminTab === 'projects'
+                  ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                  }`}
               >
                 Projetos
               </button>
               <button
                 onClick={() => setAdminTab('investments')}
-                className={`px-4 py-2 font-semibold transition-all duration-300 border-b-2 ${
-                  adminTab === 'investments'
-                    ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
-                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
-                }`}
+                className={`px-4 py-2 font-semibold transition-all duration-300 border-b-2 ${adminTab === 'investments'
+                  ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                  }`}
               >
                 Investimentos
               </button>
               <button
                 onClick={() => setAdminTab('mpts')}
-                className={`px-4 py-2 font-semibold transition-all duration-300 border-b-2 flex items-center gap-2 ${
-                  adminTab === 'mpts'
-                    ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
-                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
-                }`}
+                className={`px-4 py-2 font-semibold transition-all duration-300 border-b-2 flex items-center gap-2 ${adminTab === 'mpts'
+                  ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                  }`}
               >
                 <Layers className="w-4 h-4" />
                 MPTs Emitidos
@@ -1717,120 +1857,236 @@ export default function Home() {
               <>
                 {/* MPT Cards Grid */}
                 {loadingProjects ? (
-              <div className="text-center py-12">
-                <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-                <p className="text-gray-600 dark:text-gray-300">Carregando projetos...</p>
-              </div>
-            ) : adminProjects.length === 0 ? (
-              <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-12 text-center">
-                <p className="text-gray-600 dark:text-gray-300 text-lg">
-                  Nenhum projeto cadastrado. Execute o seed do banco de dados.
-                </p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {adminProjects.map((project, index) => {
-                  const Icon = typeIcons[project.type as keyof typeof typeIcons] || Mountain;
-                  const colorClass = typeColors[project.type as keyof typeof typeColors] || 'from-blue-400 to-blue-600';
+                  <div className="text-center py-12">
+                    <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+                    <p className="text-gray-600 dark:text-gray-300">Carregando projetos...</p>
+                  </div>
+                ) : adminProjects.length === 0 ? (
+                  <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-12 text-center">
+                    <p className="text-gray-600 dark:text-gray-300 text-lg">
+                      Nenhum projeto cadastrado. Execute o seed do banco de dados.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {adminProjects.map((project, index) => {
+                      const Icon = typeIcons[project.type as keyof typeof typeIcons] || Mountain;
+                      const colorClass = typeColors[project.type as keyof typeof typeColors] || 'from-blue-400 to-blue-600';
 
-                  return (
-                    <motion.div
-                      key={project.id}
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.5, delay: index * 0.1 }}
-                      whileHover={{ scale: 1.02, y: -5 }}
-                      className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-6 border border-gray-200 dark:border-gray-700 hover:shadow-2xl transition-all duration-300"
-                    >
-                      <div className="flex items-start gap-4 mb-4">
-                        <div className={`p-3 bg-gradient-to-br ${colorClass} rounded-xl`}>
-                          <Icon className="w-8 h-8 text-white" />
-                        </div>
-                        <div className="flex-1">
-                          <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-1">
-                            {project.name}
-                          </h3>
-                          <p className="text-sm text-gray-500 dark:text-gray-400">
-                            {project.description || project.purpose}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="space-y-3 mb-6">
-                        <div>
-                          <p className="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-1">
-                            Propósito:
-                          </p>
-                          <p className="text-gray-700 dark:text-gray-200">
-                            {project.purpose}
-                          </p>
-                        </div>
-                        {project.example && (
-                          <div>
-                            <p className="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-1">
-                              Exemplo:
-                            </p>
-                            <p className="text-gray-700 dark:text-gray-200">
-                              {project.example}
-                            </p>
-                          </div>
-                        )}
-                        <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
-                          <div className="flex justify-between text-sm mb-2">
-                            <span className="text-gray-600 dark:text-gray-300">
-                              Arrecadado: R$ {project.totalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                            </span>
-                            <span className="text-gray-600 dark:text-gray-300">
-                              Meta: R$ {project.targetAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                            </span>
-                          </div>
-                          <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                            <div
-                              className="bg-gradient-to-r from-blue-500 to-purple-500 h-2 rounded-full"
-                              style={{ width: `${Math.min((project.totalAmount / project.targetAmount) * 100, 100)}%` }}
-                            />
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex gap-2">
-                        <motion.button
-                          whileHover={{ scale: 1.05 }}
-                          whileTap={{ scale: 0.95 }}
-                          onClick={() => openUploadModal(project.id)}
-                          className="flex-1 px-4 py-3 bg-gray-500 hover:bg-gray-600 dark:bg-gray-600 dark:hover:bg-gray-700 text-white rounded-xl font-semibold transition-all duration-300 flex items-center justify-center gap-2 shadow-md hover:shadow-lg"
+                      return (
+                        <motion.div
+                          key={project.id}
+                          initial={{ opacity: 0, y: 20 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.5, delay: index * 0.1 }}
+                          whileHover={{ scale: 1.02, y: -5 }}
+                          className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-6 border border-gray-200 dark:border-gray-700 hover:shadow-2xl transition-all duration-300"
                         >
-                          <FileText className="w-5 h-5" />
-                          Arquivo
-                        </motion.button>
-                        <motion.button
-                          whileHover={{ scale: 1.05 }}
-                          whileTap={{ scale: 0.95 }}
-                          onClick={() => handleIssueToken(project)}
-                          disabled={
-                            !isConnected ||
-                            !account ||
-                            isWalletLoading ||
-                            issuingProjectId === project.id
-                          }
-                          className="flex-1 px-4 py-3 bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700 text-white rounded-xl font-semibold transition-all duration-300 flex items-center justify-center gap-2 shadow-md hover:shadow-lg disabled:opacity-60 disabled:cursor-not-allowed"
+                          <div className="flex items-start gap-4 mb-4">
+                            <div className={`p-3 bg-gradient-to-br ${colorClass} rounded-xl`}>
+                              <Icon className="w-8 h-8 text-white" />
+                            </div>
+                            <div className="flex-1">
+                              <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-1">
+                                {project.name}
+                              </h3>
+                              <p className="text-sm text-gray-500 dark:text-gray-400">
+                                {project.description || project.purpose}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="space-y-3 mb-6">
+                            <div>
+                              <p className="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-1">
+                                Propósito:
+                              </p>
+                              <p className="text-gray-700 dark:text-gray-200">
+                                {project.purpose}
+                              </p>
+                            </div>
+                            {project.example && (
+                              <div>
+                                <p className="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-1">
+                                  Exemplo:
+                                </p>
+                                <p className="text-gray-700 dark:text-gray-200">
+                                  {project.example}
+                                </p>
+                              </div>
+                            )}
+                            <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
+                              <div className="flex justify-between text-sm mb-2">
+                                <span className="text-gray-600 dark:text-gray-300">
+                                  Arrecadado: R$ {project.totalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                </span>
+                                <span className="text-gray-600 dark:text-gray-300">
+                                  Meta: R$ {project.targetAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                </span>
+                              </div>
+                              <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                                <div
+                                  className="bg-gradient-to-r from-blue-500 to-purple-500 h-2 rounded-full"
+                                  style={{ width: `${Math.min((project.totalAmount / project.targetAmount) * 100, 100)}%` }}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <motion.button
+                              whileHover={{ scale: 1.05 }}
+                              whileTap={{ scale: 0.95 }}
+                              onClick={() => openUploadModal(project.id)}
+                              className="flex-1 px-4 py-3 bg-gray-500 hover:bg-gray-600 dark:bg-gray-600 dark:hover:bg-gray-700 text-white rounded-xl font-semibold transition-all duration-300 flex items-center justify-center gap-2 shadow-md hover:shadow-lg"
+                            >
+                              <FileText className="w-5 h-5" />
+                              Arquivo
+                            </motion.button>
+                            <motion.button
+                              whileHover={{ scale: 1.05 }}
+                              whileTap={{ scale: 0.95 }}
+                              onClick={() => handleIssueToken(project)}
+                              disabled={
+                                !isConnected ||
+                                !account ||
+                                isWalletLoading ||
+                                issuingProjectId === project.id
+                              }
+                              className="flex-1 px-4 py-3 bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700 text-white rounded-xl font-semibold transition-all duration-300 flex items-center justify-center gap-2 shadow-md hover:shadow-lg disabled:opacity-60 disabled:cursor-not-allowed"
+                            >
+                              {issuingProjectId === project.id ? (
+                                <>
+                                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                  Emitindo...
+                                </>
+                              ) : (
+                                <>
+                                  Emitir {project.name}
+                                  <ArrowRight className="w-5 h-5" />
+                                </>
+                              )}
+                            </motion.button>
+                          </div>
+                        </motion.div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Seção de MPTs na mesma aba de Projetos */}
+                <div className="mt-10 pt-8 border-t-2 border-gray-200 dark:border-gray-700">
+                  <div className="flex items-center justify-between mb-6">
+                    <h3 className="text-xl font-bold text-gray-800 dark:text-white flex items-center gap-2">
+                      <Layers className="w-6 h-6 text-purple-500" />
+                      Multi-Purpose Tokens (MPTs)
+                    </h3>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={fetchMptIssuances}
+                        disabled={loadingMptIssuances}
+                        className="px-3 py-1.5 text-sm font-medium text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white flex items-center gap-1 disabled:opacity-50"
+                      >
+                        <RefreshCw className={`w-4 h-4 ${loadingMptIssuances ? 'animate-spin' : ''}`} />
+                        Atualizar
+                      </button>
+                      <Link
+                        href="/admin/mpt"
+                        className="px-4 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-semibold flex items-center gap-1"
+                      >
+                        <Plus className="w-4 h-4" />
+                        Criar MPT
+                      </Link>
+                    </div>
+                  </div>
+
+                  {loadingMptIssuances ? (
+                    <div className="text-center py-8">
+                      <div className="w-8 h-8 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+                      <p className="text-gray-600 dark:text-gray-300 text-sm">Carregando MPTs...</p>
+                    </div>
+                  ) : mptIssuances.length === 0 ? (
+                    <div className="bg-purple-50 dark:bg-purple-900/20 rounded-xl p-6 text-center border border-purple-200 dark:border-purple-800">
+                      <Layers className="w-10 h-10 mx-auto mb-2 text-purple-400" />
+                      <p className="text-purple-700 dark:text-purple-300">
+                        Nenhum MPT emitido ainda.
+                      </p>
+                      <Link
+                        href="/admin/mpt"
+                        className="inline-flex items-center gap-1 mt-2 text-sm text-purple-600 dark:text-purple-400 hover:underline"
+                      >
+                        <Plus className="w-4 h-4" />
+                        Criar primeiro MPT
+                      </Link>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {mptIssuances.map((mpt, index) => (
+                        <motion.div
+                          key={mpt.id}
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: index * 0.05 }}
+                          className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-purple-200 dark:border-purple-800 hover:shadow-lg transition-all"
                         >
-                          {issuingProjectId === project.id ? (
-                            <>
-                              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                              Emitindo...
-                            </>
-                          ) : (
-                            <>
-                              Emitir {project.name}
-                              <ArrowRight className="w-5 h-5" />
-                            </>
-                          )}
-                        </motion.button>
-                      </div>
-                    </motion.div>
-                  );
-                })}
-              </div>
-            )}
+                          <div className="flex items-start gap-3">
+                            <div className="p-2 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-lg">
+                              <Layers className="w-5 h-5 text-white" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <h4 className="font-semibold text-gray-800 dark:text-white truncate">
+                                {mpt.name || mpt.symbol || 'Token sem nome'}
+                              </h4>
+                              <p className="text-xs text-gray-500 dark:text-gray-400 font-mono truncate">
+                                {mpt.xrplIssuanceId?.slice(0, 16) || 'ID pendente'}...
+                              </p>
+                            </div>
+                            <span className={`px-2 py-0.5 text-xs font-semibold rounded ${mpt.status === 'ACTIVE' || mpt.status === 'MINTED'
+                              ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                              : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
+                              }`}>
+                              {mpt.status}
+                            </span>
+                          </div>
+
+                          <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                            <div>
+                              <span className="text-gray-500 dark:text-gray-400">Rede:</span>
+                              <span className="ml-1 font-medium text-gray-700 dark:text-gray-300 uppercase">
+                                {mpt.network}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-gray-500 dark:text-gray-400">Tipo:</span>
+                              <span className="ml-1 font-medium text-gray-700 dark:text-gray-300">
+                                {mpt.type}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="mt-3 flex gap-2">
+                            {mpt.explorerUrls?.tx && (
+                              <a
+                                href={mpt.explorerUrls.tx}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex-1 px-2 py-1.5 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg text-xs font-medium flex items-center justify-center gap-1"
+                              >
+                                <ExternalLink className="w-3 h-3" />
+                                Explorer
+                              </a>
+                            )}
+                            <Link
+                              href="/admin/mpt"
+                              className="flex-1 px-2 py-1.5 bg-purple-100 dark:bg-purple-900/30 hover:bg-purple-200 dark:hover:bg-purple-900/50 text-purple-700 dark:text-purple-300 rounded-lg text-xs font-medium flex items-center justify-center gap-1"
+                            >
+                              <Send className="w-3 h-3" />
+                              Transferir
+                            </Link>
+                          </div>
+                        </motion.div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </>
             )}
 
@@ -1893,7 +2149,7 @@ export default function Home() {
                                   {investment.user?.name || 'N/A'}
                                 </div>
                                 <div className="text-xs text-gray-500 dark:text-gray-400 font-mono">
-                                  {investment.user?.walletAddress 
+                                  {investment.user?.walletAddress
                                     ? `${investment.user.walletAddress.slice(0, 8)}...${investment.user.walletAddress.slice(-6)}`
                                     : 'N/A'}
                                 </div>
@@ -1902,25 +2158,24 @@ export default function Home() {
                                 R$ {investment.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
-                                {investment.xrpAmount 
+                                {investment.xrpAmount
                                   ? `${investment.xrpAmount.toFixed(2)} XRP`
                                   : 'N/A'}
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap">
-                                <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                                  investment.status === 'published' 
-                                    ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
-                                    : investment.status === 'denied' || investment.status === 'cancelled'
+                                <span className={`px-2 py-1 text-xs font-semibold rounded-full ${investment.status === 'published'
+                                  ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
+                                  : investment.status === 'denied' || investment.status === 'cancelled'
                                     ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
                                     : investment.status === 'confirmed'
-                                    ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
-                                    : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'
-                                }`}>
+                                      ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
+                                      : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'
+                                  }`}>
                                   {investment.status === 'published' ? 'Publicado' :
-                                   investment.status === 'denied' ? 'Negado' :
-                                   investment.status === 'cancelled' ? 'Cancelado' :
-                                   investment.status === 'confirmed' ? 'Confirmado' :
-                                   'Pendente'}
+                                    investment.status === 'denied' ? 'Negado' :
+                                      investment.status === 'cancelled' ? 'Cancelado' :
+                                        investment.status === 'confirmed' ? 'Confirmado' :
+                                          'Pendente'}
                                 </span>
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
@@ -2055,13 +2310,12 @@ export default function Home() {
                                 {mpt.symbol} • {mpt.type}
                               </p>
                             </div>
-                            <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                              mpt.status === 'ACTIVE' || mpt.status === 'CREATED'
-                                ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
-                                : mpt.status === 'PAUSED'
+                            <span className={`px-2 py-1 text-xs font-semibold rounded-full ${mpt.status === 'ACTIVE' || mpt.status === 'CREATED'
+                              ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
+                              : mpt.status === 'PAUSED'
                                 ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'
                                 : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
-                            }`}>
+                              }`}>
                               {mpt.status}
                             </span>
                           </div>
@@ -2121,7 +2375,7 @@ export default function Home() {
                                 rel="noopener noreferrer"
                                 className="text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center gap-1"
                               >
-                                {mpt.issuerWallet.label} ({mpt.issuerWallet.address.slice(0, 8)}...)
+                                {mpt.issuerWallet.label} ({mpt.issuerWallet.address?.slice(0, 8) || 'N/A'}...)
                                 <ExternalLink className="w-3 h-3" />
                               </a>
                             </div>

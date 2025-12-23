@@ -112,6 +112,35 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const prisma = getPrismaClient();
+
+    // Validar se o destino já está autorizado. 
+    // Se for uma carteira de serviço nossa, podemos autorizar automaticamente.
+    try {
+      const { isHolderAuthorized, authorizeMPTHolder } = await import('@/lib/xrpl/mpt-helpers');
+      const isAuthorized = await isHolderAuthorized(toAddress, mptokenIssuanceID, network);
+
+      if (!isAuthorized && prisma) {
+        // Tentar encontrar se o destino é uma carteira nossa
+        const toWallet = await prisma.serviceWallet.findFirst({
+          where: { address: toAddress }
+        });
+
+        if (toWallet) {
+          console.log(`[API MPT Send] Auto-autorizando carteira de serviço destino: ${toAddress}`);
+          await authorizeMPTHolder({
+            holderAddress: toAddress,
+            holderSeed: decryptSecret(toWallet.seedEncrypted),
+            mptokenIssuanceID,
+            network
+          });
+        }
+      }
+    } catch (authError: any) {
+      console.warn('[API MPT Send] Falha ao verificar/auto-autorizar:', authError.message);
+      // Continuamos, pois o sendMPT tentará de qualquer forma e dará o erro tecNO_AUTH se necessário
+    }
+
     // Enviar MPT
     const txHash = await sendMPT({
       fromAddress,

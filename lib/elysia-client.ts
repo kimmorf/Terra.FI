@@ -16,10 +16,9 @@ interface RegisterIssuancePayload {
 
 interface RegisterActionPayload {
     type: 'authorize' | 'payment' | 'freeze' | 'clawback' | 'payout' | 'error' | 'trustset' | 'dex_offer';
-    token: {
-        currency: string;
-        issuer: string;
-    };
+    token: 
+        | { currency: string; issuer: string; mptokenIssuanceID?: never }
+        | { mptokenIssuanceID: string; currency?: never; issuer?: never };
     actor: string;
     target?: string;
     amount?: string;

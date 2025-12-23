@@ -4,7 +4,35 @@ import { getPrismaClient } from '@/lib/prisma';
 import { decryptSecret } from '@/lib/utils/crypto';
 import { xrplPool, type XRPLNetwork } from '@/lib/xrpl/pool';
 import { ReliableSubmission } from '@/lib/xrpl/reliable-submission';
+import { trySendFaucet } from '@/lib/xrpl/mpt-helpers';
 
+/**
+ * API Route para enviar pagamentos (XRP, IOU ou MPT)
+ * 
+ * POST /api/xrpl/payment
+ * 
+ * Body:
+ * {
+ *   walletId?: string,        // ID da carteira de serviço (alternativa a account/seed)
+ *   account?: string,         // Endereço da conta remetente
+ *   seed?: string,            // Seed da conta remetente
+ *   destination: string,      // Endereço de destino
+ *   amount: string,           // Quantidade
+ *   
+ *   // Para XRP nativo:
+ *   isXRP?: boolean,          // true = pagamento em XRP
+ *   
+ *   // Para MPT (Multi-Purpose Token):
+ *   mptokenIssuanceID?: string, // ID do MPT (64 chars hex)
+ *   
+ *   // Para IOU legado:
+ *   currency?: string,        // Código da moeda (3-20 chars)
+ *   issuer?: string,          // Endereço do emissor
+ *   
+ *   network?: string,         // testnet, devnet, mainnet
+ *   memo?: string             // Memo opcional
+ * }
+ */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -16,8 +44,10 @@ export async function POST(request: NextRequest) {
       amount,
       currency,
       issuer,
+      mptokenIssuanceID,
       isXRP = false,
       network: rawNetwork = 'testnet',
+      memo,
     } = body;
 
     const prisma = getPrismaClient();
@@ -71,6 +101,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Seed não corresponde à conta informada' }, { status: 400 });
     }
 
+    // Tentar enviar faucet para o destino antes do pagamento
+    // Isso garante que a conta destino exista e tenha fundos
+    // Se falhar, ignoramos silenciosamente e continuamos
+    if (network === 'testnet' || network === 'devnet') {
+      console.log('[API Payment] Tentando enviar faucet para destino antes do pagamento...');
+      await trySendFaucet(destination, network);
+    }
+
     const client = await xrplPool.getClient(network);
 
     const tx: Record<string, unknown> = {
@@ -79,12 +117,28 @@ export async function POST(request: NextRequest) {
       Destination: destination,
     };
 
+    // Determinar tipo de pagamento: XRP > MPT > IOU
     if (isXRP) {
+      // Pagamento em XRP nativo
       tx.Amount = xrpToDrops(amount);
+    } else if (mptokenIssuanceID) {
+      // Pagamento em MPT (Multi-Purpose Token)
+      const cleanedID = mptokenIssuanceID.replace(/[^0-9A-Fa-f]/g, '');
+      if (cleanedID.length !== 64) {
+        return NextResponse.json(
+          { error: `mptokenIssuanceID inválido. Esperado 64 caracteres hex, recebido: ${cleanedID.length}` },
+          { status: 400 },
+        );
+      }
+      tx.Amount = {
+        mpt_issuance_id: cleanedID.toUpperCase(),
+        value: amount,
+      };
     } else {
+      // Pagamento em IOU (legado)
       if (!currency || !issuer) {
         return NextResponse.json(
-          { error: 'currency e issuer são obrigatórios para pagamentos IOU' },
+          { error: 'currency e issuer são obrigatórios para pagamentos IOU (ou use mptokenIssuanceID para MPTs)' },
           { status: 400 },
         );
       }
@@ -93,6 +147,18 @@ export async function POST(request: NextRequest) {
         issuer,
         value: amount,
       };
+    }
+
+    // Adicionar memo se fornecido
+    if (memo && typeof memo === 'string' && memo.trim()) {
+      const memoHex = Buffer.from(memo.trim(), 'utf-8').toString('hex').toUpperCase();
+      tx.Memos = [
+        {
+          Memo: {
+            MemoData: memoHex,
+          },
+        },
+      ];
     }
 
     const prepared = await client.autofill(tx);

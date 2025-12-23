@@ -9,6 +9,8 @@ import { TrendingUp, Wallet, ArrowRight, Calendar, DollarSign } from 'lucide-rea
 import { BackgroundParticles } from '@/components/BackgroundParticles';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { WalletSelector } from '@/components/WalletSelector';
+import { WalletInfo } from '@/components/WalletInfo';
+import { useCrossmarkContext } from '@/lib/crossmark/CrossmarkProvider';
 
 interface InvestmentProject {
   id: string;
@@ -38,6 +40,7 @@ interface MyInvestment {
 
 export default function DashboardPage() {
   const { data: session, isPending } = useSession();
+  const { isConnected, account } = useCrossmarkContext();
   const [activeTab, setActiveTab] = useState<'investments' | 'my-investments'>('investments');
   const [projects, setProjects] = useState<InvestmentProject[]>([]);
   const [myInvestments, setMyInvestments] = useState<MyInvestment[]>([]);
@@ -160,7 +163,7 @@ export default function DashboardPage() {
       {/* Header com Wallet e Theme Toggle */}
       <div className="fixed top-4 right-4 z-50 flex items-center gap-3">
         <WalletSelector />
-        <ThemeToggle />
+      <ThemeToggle />
       </div>
       
       <div className="container mx-auto px-4 py-8 md:py-12">
@@ -185,6 +188,24 @@ export default function DashboardPage() {
             Sair
           </button>
         </motion.div>
+
+        {/* Informações da Carteira Conectada */}
+        {isConnected && account && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, delay: 0.1 }}
+            className="mb-8"
+          >
+            <WalletInfo
+              address={account.address}
+              network={account.network as 'testnet' | 'devnet' | 'mainnet'}
+              label="Crossmark"
+              showHistory={true}
+              compact={false}
+            />
+          </motion.div>
+        )}
 
         {/* Tabs */}
         <div className="flex gap-4 mb-8">

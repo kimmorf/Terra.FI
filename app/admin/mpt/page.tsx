@@ -24,7 +24,10 @@ import { useRouter } from 'next/navigation';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { BackgroundParticles } from '@/components/BackgroundParticles';
 import { WalletSelector } from '@/components/WalletSelector';
+import { WalletInfo } from '@/components/WalletInfo';
 import { TOKEN_PRESETS, TOKEN_CONFIG, type TokenPreset } from '@/lib/tokens/presets';
+// Página Admin: usa apenas ServiceWallets (não Crossmark)
+import { registerIssuance } from '@/lib/elysia-client';
 
 const STORAGE_KEY = 'admin:selectedWalletId';
 
@@ -39,7 +42,9 @@ function getExplorerUrl(network: string, type: 'tx' | 'account' | 'mpt', hash: s
   const baseUrl = EXPLORER_URLS[network] || EXPLORER_URLS.testnet;
   if (type === 'tx') return `${baseUrl}/transactions/${hash}`;
   if (type === 'account') return `${baseUrl}/accounts/${hash}`;
-  if (type === 'mpt') return `${baseUrl}/mpt/${hash}`;
+  // MPTs: O XRPL Explorer ainda não tem página dedicada para MPTs
+  // Retornamos a conta do emissor como fallback
+  if (type === 'mpt') return `${baseUrl}/accounts/${hash}`;
   return baseUrl;
 }
 
@@ -94,6 +99,11 @@ async function fetchJSON<T>(input: RequestInfo, init?: RequestInit): Promise<T> 
 
 export default function AdminMPTPage() {
   const router = useRouter();
+  
+  // PÁGINA ADMIN: Usa apenas ServiceWallets (carteiras do protocolo)
+  // Crossmark é usado apenas nas páginas do usuário final (/tokens/*)
+  // Não misturamos os dois tipos de carteira
+  
   const [activeTab, setActiveTab] = useState<Tab>('listar');
   const [wallets, setWallets] = useState<ServiceWallet[]>([]);
   const [loadingWallets, setLoadingWallets] = useState(true);
@@ -108,6 +118,13 @@ export default function AdminMPTPage() {
   const [selectedPreset, setSelectedPreset] = useState<TokenPreset | null>(TOKEN_PRESETS[0]);
   const [tokenName, setTokenName] = useState('');
   const [supply, setSupply] = useState('');
+  // Campos opcionais
+  const [tokenDescription, setTokenDescription] = useState('');
+  const [tokenPurpose, setTokenPurpose] = useState('');
+  const [geolocation, setGeolocation] = useState('');
+  const [legalReference, setLegalReference] = useState('');
+  const [externalUrl, setExternalUrl] = useState('');
+  
   const [issueLoading, setIssueLoading] = useState(false);
   const [issueError, setIssueError] = useState<string | null>(null);
   const [issueSuccess, setIssueSuccess] = useState<string | null>(null);
@@ -118,6 +135,8 @@ export default function AdminMPTPage() {
   const [transferLoading, setTransferLoading] = useState(false);
   const [transferError, setTransferError] = useState<string | null>(null);
   const [transferSuccess, setTransferSuccess] = useState<string | null>(null);
+  // Carteira de origem para transferência (pode ser diferente da selecionada globalmente)
+  const [transferFromWalletId, setTransferFromWalletId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const selectedWallet = useMemo(
@@ -180,8 +199,9 @@ export default function AdminMPTPage() {
     }
     setLoadingTokens(true);
     try {
+      // Incluir walletId para buscar dados do banco de dados (nomes, metadados)
       const data = await fetchJSON<{ tokens: TokenSummary[] }>(
-        `/api/mpt/list?issuer=${encodeURIComponent(selectedWallet.address)}&network=${selectedWallet.network}`,
+        `/api/mpt/list?issuer=${encodeURIComponent(selectedWallet.address)}&walletId=${encodeURIComponent(selectedWallet.id)}&network=${selectedWallet.network}`,
       );
       setTokens(data.tokens || []);
     } catch (error) {
@@ -230,8 +250,13 @@ export default function AdminMPTPage() {
   };
 
   const handleEmit = async () => {
-    if (!selectedWallet || !selectedPreset) {
-      setIssueError('Selecione uma carteira do protocolo e um tipo de token.');
+    // Página Admin: requer ServiceWallet selecionada
+    if (!selectedWallet) {
+      setIssueError('Selecione uma carteira do protocolo para emitir.');
+      return;
+    }
+    if (!selectedPreset) {
+      setIssueError('Selecione um tipo de token.');
       return;
     }
     if (!tokenName.trim()) {
@@ -251,6 +276,9 @@ export default function AdminMPTPage() {
     setIssueSuccess(null);
 
     try {
+      // Página Admin: Usar ServiceWallet via API
+      console.log('[AdminMPT] Emitindo via ServiceWallet...');
+      
       await fetchJSON('/api/mpt/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -261,6 +289,11 @@ export default function AdminMPTPage() {
           tokenType: selectedPreset.id.toLowerCase(),
           metadataOverrides: {
             name: tokenName.trim(),
+            ...(tokenDescription.trim() ? { description: tokenDescription.trim() } : {}),
+            ...(tokenPurpose.trim() ? { purpose: tokenPurpose.trim() } : {}),
+            ...(geolocation.trim() ? { geolocation: geolocation.trim() } : {}),
+            ...(legalReference.trim() ? { legalReference: legalReference.trim() } : {}),
+            ...(externalUrl.trim() ? { externalUrl: externalUrl.trim() } : {}),
             issuedAt: new Date().toISOString(),
           },
           flags: {
@@ -272,8 +305,14 @@ export default function AdminMPTPage() {
       });
 
       setIssueSuccess('Token emitido com sucesso!');
+      
       setTokenName('');
       setSupply('');
+      setTokenDescription('');
+      setTokenPurpose('');
+      setGeolocation('');
+      setLegalReference('');
+      setExternalUrl('');
       loadTokens();
     } catch (error: any) {
       setIssueError(error.message || 'Falha ao emitir token.');
@@ -283,8 +322,13 @@ export default function AdminMPTPage() {
   };
 
   const handleTransfer = async () => {
-    if (!selectedWallet) {
-      setTransferError('Selecione uma carteira do protocolo.');
+    // Usar a carteira de origem selecionada para transferência, ou a carteira global
+    const fromWallet = transferFromWalletId 
+      ? wallets.find(w => w.id === transferFromWalletId) 
+      : selectedWallet;
+    
+    if (!fromWallet) {
+      setTransferError('Selecione uma carteira de origem para transferir.');
       return;
     }
     if (!transferIssuanceId.trim() || !transferDestination.trim() || !transferAmount.trim()) {
@@ -305,22 +349,27 @@ export default function AdminMPTPage() {
     setTransferSuccess(null);
 
     try {
+      // Página Admin: Usar ServiceWallet via API
+      console.log('[AdminMPT] Transferindo via ServiceWallet:', fromWallet.label);
+      console.log('[AdminMPT] De:', fromWallet.address, '-> Para:', transferDestination.trim());
+      
       const data = await fetchJSON<{ txHash: string }>(
         '/api/mpt/send',
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            walletId: selectedWallet.id,
+            walletId: fromWallet.id,
             toAddress: transferDestination.trim(),
             mptokenIssuanceID: transferIssuanceId.trim(),
             amount: amountInBaseUnits,
-            network: selectedWallet.network,
+            network: fromWallet.network,
           }),
         },
       );
 
-      setTransferSuccess(`Transferência enviada. TX: ${data.txHash.slice(0, 16)}...`);
+      setTransferSuccess(`Transferência enviada de ${fromWallet.label}. TX: ${data.txHash.slice(0, 16)}...`);
+
       setTransferIssuanceId('');
       setTransferDestination('');
       setTransferAmount('');
@@ -401,11 +450,24 @@ export default function AdminMPTPage() {
             </Link>
           </header>
 
-          {/* Seletor de Carteira com Popup */}
+          {/* Informações da Carteira Ativa (Página Admin: somente ServiceWallet) */}
+          {selectedWallet && (
+            <div className="mb-6">
+              <WalletInfo
+                address={selectedWallet.address}
+                network={selectedWallet.network}
+                label={selectedWallet.label}
+                showHistory={true}
+                compact={false}
+              />
+            </div>
+          )}
+
+          {/* Seletor de Carteira do Protocolo */}
           <section className="mb-6">
             <div className="flex items-center gap-3 mb-3">
               <h2 className="text-lg font-semibold text-gray-800 dark:text-white flex items-center gap-2">
-                <LockKeyhole className="w-5 h-5" /> Carteira selecionada
+                <LockKeyhole className="w-5 h-5" /> Carteira do Protocolo
               </h2>
             </div>
 
@@ -512,7 +574,7 @@ export default function AdminMPTPage() {
                         value={tokenName}
                         onChange={(event) => setTokenName(event.target.value)}
                         placeholder="Ex: LAND-MPT - Parcela 12"
-                        className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800"
+                        className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
                       />
                     </div>
                     <div>
@@ -524,11 +586,79 @@ export default function AdminMPTPage() {
                         value={supply}
                         onChange={(event) => setSupply(event.target.value)}
                         placeholder={selectedPreset?.defaultSupply || '0'}
-                        className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800"
+                        className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
                       />
                       <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                         Se não informado, será usado o valor padrão do tipo de token.
                       </p>
+                    </div>
+                  </div>
+
+                  {/* Campos opcionais */}
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                      Descrição <span className="text-gray-400 font-normal text-xs">(opcional)</span>
+                    </label>
+                    <textarea
+                      value={tokenDescription}
+                      onChange={(event) => setTokenDescription(event.target.value)}
+                      rows={2}
+                      placeholder="Resumo do ativo tokenizado"
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                        Propósito <span className="text-gray-400 font-normal text-xs">(opcional)</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={tokenPurpose}
+                        onChange={(event) => setTokenPurpose(event.target.value)}
+                        placeholder="Ex: Tokenização de terreno residencial"
+                        className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                        Geolocalização <span className="text-gray-400 font-normal text-xs">(opcional)</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={geolocation}
+                        onChange={(event) => setGeolocation(event.target.value)}
+                        placeholder="Ex: São Paulo - Brasil"
+                        className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                        Referência Legal <span className="text-gray-400 font-normal text-xs">(opcional)</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={legalReference}
+                        onChange={(event) => setLegalReference(event.target.value)}
+                        placeholder="Ex: Matrícula 0001-XYZ"
+                        className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                        URL Externa <span className="text-gray-400 font-normal text-xs">(opcional)</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={externalUrl}
+                        onChange={(event) => setExternalUrl(event.target.value)}
+                        placeholder="https://seu-dominio.com/dados"
+                        className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                      />
                     </div>
                   </div>
 
@@ -573,6 +703,30 @@ export default function AdminMPTPage() {
               {/* Transferir */}
               {activeTab === 'transferir' && (
                 <div className="space-y-6">
+                  {/* Seletor de Carteira de Origem */}
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                      Carteira de Origem *
+                    </label>
+                    <select
+                      value={transferFromWalletId || selectedWalletId || ''}
+                      onChange={(e) => setTransferFromWalletId(e.target.value || null)}
+                      className="w-full px-4 py-3 border-2 border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-800 text-gray-800 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="">Selecione a carteira de origem</option>
+                      {wallets.map((wallet) => (
+                        <option key={wallet.id} value={wallet.id}>
+                          {wallet.label} ({wallet.address.slice(0, 8)}... - {wallet.network})
+                        </option>
+                      ))}
+                    </select>
+                    {(transferFromWalletId || selectedWalletId) && (
+                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        Endereço: {wallets.find(w => w.id === (transferFromWalletId || selectedWalletId))?.address || 'N/A'}
+                      </p>
+                    )}
+                  </div>
+
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
                       MPTokenIssuanceID (Hex) *
@@ -654,7 +808,7 @@ export default function AdminMPTPage() {
 
                   <button
                     onClick={handleTransfer}
-                    disabled={transferLoading || !selectedWallet}
+                    disabled={transferLoading || (!transferFromWalletId && !selectedWalletId)}
                     className="w-full px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl font-semibold shadow-lg hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
                     {transferLoading ? (
@@ -715,10 +869,11 @@ export default function AdminMPTPage() {
                                 <div className="flex items-center gap-2">
                                   <strong>ID:</strong>
                                   <a
-                                    href={getExplorerUrl(selectedWallet?.network || 'testnet', 'mpt', token.issuanceIdHex)}
+                                    href={getExplorerUrl(selectedWallet?.network || 'testnet', 'account', selectedWallet?.address || '')}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="font-mono text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center gap-1"
+                                    title="Ver conta emissora no Explorer"
                                   >
                                     {token.issuanceIdHex.slice(0, 16)}...
                                     <ExternalLink className="w-3 h-3" />
@@ -754,10 +909,11 @@ export default function AdminMPTPage() {
                             </div>
                             <div className="flex flex-col gap-2">
                               <a
-                                href={getExplorerUrl(selectedWallet?.network || 'testnet', 'mpt', token.issuanceIdHex)}
+                                href={getExplorerUrl(selectedWallet?.network || 'testnet', 'account', selectedWallet?.address || '')}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="px-3 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg text-xs font-semibold flex items-center gap-1"
+                                title="Ver conta emissora no Explorer"
                               >
                                 <ExternalLink className="w-3 h-3" /> Explorer
                               </a>

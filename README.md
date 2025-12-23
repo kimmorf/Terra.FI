@@ -2,7 +2,7 @@
 
 **Transforming Real Estate into Programmable Collateral**  
 Built with XRPL Multi-Purpose Tokens (MPTs) and XLS-89 Metadata
-
+ 
 ---
 
 ## 1. Project Overview
@@ -194,22 +194,46 @@ npm install
 Create a `.env` file in the root directory:
 
 ```env
-# Database
-DATABASE_URL=postgres://user:pass@localhost:5432/terrafi
+# ============================================
+# DATABASE (Required)
+# ============================================
+DATABASE_URL=postgres://user:password@localhost:5432/terrafi
 
-# XRPL
-XRPL_NETWORK=devnet
-XRPL_DEVNET_URL=wss://s.devnet.rippletest.net:51233
-
-# Encryption
-WALLET_ENCRYPTION_KEY=your-32-character-encryption-key
-
-# Authentication
-BETTER_AUTH_SECRET=your-auth-secret
+# ============================================
+# AUTHENTICATION - Better Auth (Required)
+# ============================================
+# Secret key for JWT (minimum 32 characters)
+BETTER_AUTH_SECRET=your-secret-key-with-at-least-32-characters
 BETTER_AUTH_URL=http://localhost:3000
 
-# Optional
+# ============================================
+# SECURITY (Recommended for Production)
+# ============================================
+# Key for encrypting wallet seeds (32+ characters)
+# IMPORTANT: Always set this in production!
+WALLET_ENCRYPTION_KEY=your-encryption-key-32-chars-min
+
+# ============================================
+# XRPL - Network (Optional)
+# ============================================
+# Default network: testnet | devnet | mainnet
+XRPL_NETWORK=devnet
+
+# WebSocket endpoints
+XRPL_DEVNET_URL=wss://s.devnet.rippletest.net:51233
+XRPL_TESTNET_URL=wss://s.altnet.rippletest.net:51233
+XRPL_MAINNET_URL=wss://xrplcluster.com/
+
+# ============================================
+# COLLATERAL (Optional)
+# ============================================
+# Haircut for COL-MPT in basis points (2000 = 20%)
 COLLATERAL_HAIRCUT_BPS=2000
+
+# ============================================
+# FRONTEND (Optional)
+# ============================================
+NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
 
 ### Database Setup
@@ -230,6 +254,25 @@ npm run dev
 ```bash
 npm run build
 npm start
+```
+
+### Running Tests
+
+```bash
+# Run all tests
+npm run test
+
+# Run MPT API integration tests
+npm run test:mpt:api
+
+# Run MPT E2E tests (requires XRPL connection)
+npm run test:mpt
+
+# Run all MPT tests
+npm run test:mpt:all
+
+# Open test UI
+npm run test:ui
 ```
 
 ---
@@ -257,6 +300,7 @@ npm start
 │
 ├── components/                   # UI Components
 │   ├── WalletSelector.tsx        # Wallet selection modal
+│   ├── WalletInfo.tsx            # Wallet balance, tokens, and history
 │   ├── ThemeToggle.tsx           # Theme switcher
 │   └── BackgroundParticles.tsx   # Visual effects
 │

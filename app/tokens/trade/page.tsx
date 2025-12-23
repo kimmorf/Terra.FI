@@ -18,6 +18,7 @@ import {
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { BackgroundParticles } from '@/components/BackgroundParticles';
 import { WalletSelector } from '@/components/WalletSelector';
+import { WalletInfo } from '@/components/WalletInfo';
 import { useCrossmarkContext } from '@/lib/crossmark/CrossmarkProvider';
 import { trustSetToken, trustSetTokenWithSeed, sendMPToken, authorizeMPToken, extractTransactionHash } from '@/lib/crossmark/transactions';
 import { registerAction } from '@/lib/elysia-client';
@@ -26,6 +27,16 @@ import { TOKEN_PRESETS, type TokenPreset } from '@/lib/tokens/presets';
 import { hasTrustLine, getAccountBalance } from '@/lib/xrpl/mpt';
 import { createOffer, cancelOffer, getAccountOffers, getBookOffers, formatOffer, type Offer, type BookOffer } from '@/lib/xrpl/dex';
 import { xrpToDrops } from '@/lib/utils/xrp-converter';
+// Interface para MPTs emitidos do banco
+interface IssuedMPT {
+    id: string;
+    ticker: string | null;
+    currency: string | null;
+    issuanceIdHex: string;
+    issuerAddress: string;
+    name?: string;
+    maximumAmount?: string;
+}
 
 function formatAddress(address: string) {
     return `${address.slice(0, 8)}...${address.slice(-8)}`;
@@ -62,6 +73,11 @@ export default function TradeTokensPage() {
     const [purchaseMessage, setPurchaseMessage] = useState<string | null>(null);
     const [purchaseError, setPurchaseError] = useState<string | null>(null);
 
+    // Estado para MPTs emitidos do banco
+    const [issuedMPTs, setIssuedMPTs] = useState<IssuedMPT[]>([]);
+    const [selectedMPTId, setSelectedMPTId] = useState<string>(''); // ID do MPT selecionado (vazio = usar preset)
+    const selectedMPT = useMemo(() => issuedMPTs.find(mpt => mpt.id === selectedMPTId), [issuedMPTs, selectedMPTId]);
+
     const [sellAmount, setSellAmount] = useState('50');
     const [sellPrice, setSellPrice] = useState('1.0'); // Preço em stablecoin por token
     const [sellMessage, setSellMessage] = useState<string | null>(null);
@@ -85,6 +101,126 @@ export default function TradeTokensPage() {
     const [mptTrustlineStatus, setMptTrustlineStatus] = useState<'unknown' | 'ok' | 'missing'>('unknown');
     const [mptTrustlineMessage, setMptTrustlineMessage] = useState<string | null>(null);
     const [mptTrustlineError, setMptTrustlineError] = useState<string | null>(null);
+    
+    // Estado para saldo XRP e faucet
+    const [xrpBalance, setXrpBalance] = useState<number | null>(null);
+    const [requestingFaucet, setRequestingFaucet] = useState(false);
+    const [faucetMessage, setFaucetMessage] = useState<string | null>(null);
+
+    // Carregar MPTs emitidos do banco
+    useEffect(() => {
+        async function loadIssuedMPTs() {
+            try {
+                const response = await fetch('/api/mpt/issuances');
+                if (response.ok) {
+                    const data = await response.json();
+                    const mpts = data.issuances || [];
+                    setIssuedMPTs(mpts.map((m: any) => ({
+                        id: m.id,
+                        ticker: m.ticker,
+                        currency: m.currency,
+                        issuanceIdHex: m.issuanceIdHex,
+                        issuerAddress: m.issuerAddress,
+                        name: m.metadata?.name || m.ticker || 'MPT',
+                        maximumAmount: m.maximumAmount,
+                    })));
+                }
+            } catch (error) {
+                console.warn('[Trade] Erro ao carregar MPTs emitidos:', error);
+            }
+        }
+        loadIssuedMPTs();
+    }, []);
+
+    // Carregar saldo XRP quando conta conectar
+    useEffect(() => {
+        async function loadXRPBalance() {
+            if (!account?.address || !account?.network) {
+                setXrpBalance(null);
+                return;
+            }
+            try {
+                const response = await fetch(`/api/wallet/balance?address=${account.address}&network=${account.network}`);
+                if (response.ok) {
+                    const data = await response.json();
+                    setXrpBalance(data.xrpBalance ?? null);
+                }
+            } catch (error) {
+                console.warn('[Trade] Erro ao carregar saldo XRP:', error);
+            }
+        }
+        loadXRPBalance();
+    }, [account?.address, account?.network]);
+
+    // Função para solicitar faucet
+    const requestFaucet = useCallback(async () => {
+        if (!account?.address || !account?.network) return;
+        if (account.network === 'mainnet') {
+            setFaucetMessage('Faucet não disponível na mainnet');
+            return;
+        }
+
+        setRequestingFaucet(true);
+        setFaucetMessage(null);
+
+        const faucetUrls: Record<string, string> = {
+            testnet: 'https://faucet.altnet.rippletest.net/accounts',
+            devnet: 'https://faucet.devnet.rippletest.net/accounts',
+        };
+
+        const faucetUrl = faucetUrls[account.network];
+        if (!faucetUrl) {
+            setFaucetMessage('Rede não suportada para faucet');
+            setRequestingFaucet(false);
+            return;
+        }
+
+        try {
+            const response = await fetch(faucetUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    destination: account.address,
+                    xrpAmount: '1000',
+                }),
+            });
+
+            if (!response.ok) {
+                throw new Error(`Faucet retornou ${response.status}`);
+            }
+
+            const data = await response.json();
+            console.log('[Faucet] Sucesso:', data);
+            setFaucetMessage('XRP creditado! Aguarde alguns segundos para atualizar.');
+            
+            // Recarrega saldo após 3 segundos
+            setTimeout(async () => {
+                try {
+                    const balanceResponse = await fetch(`/api/wallet/balance?address=${account.address}&network=${account.network}`);
+                    if (balanceResponse.ok) {
+                        const balanceData = await balanceResponse.json();
+                        setXrpBalance(balanceData.xrpBalance ?? null);
+                    }
+                } catch (e) {
+                    console.warn('[Trade] Erro ao recarregar saldo:', e);
+                }
+            }, 3000);
+        } catch (error: any) {
+            console.error('[Faucet] Erro:', error);
+            setFaucetMessage(`Erro ao solicitar faucet: ${error.message}`);
+        } finally {
+            setRequestingFaucet(false);
+        }
+    }, [account?.address, account?.network]);
+
+    // Atualizar issuerAddress quando selecionar MPT
+    useEffect(() => {
+        if (selectedMPT) {
+            setIssuerAddress(selectedMPT.issuerAddress);
+        } else if (selectedProject) {
+            setIssuerAddress(selectedProject.issuerAddress ?? '');
+        }
+    }, [selectedMPT, selectedProject]);
 
     useEffect(() => {
         let cancelled = false;
@@ -527,8 +663,11 @@ export default function TradeTokensPage() {
     const handlePurchase = useCallback(async () => {
         const currentAccount = account;
         const project = selectedProject;
+        const mpt = selectedMPT;
 
-        if (!currentAccount || !selectedStable || !project) return;
+        // Precisa de conta, stablecoin e (MPT ou preset)
+        if (!currentAccount || !selectedStable) return;
+        if (!mpt && !project) return;
 
         if (trustlineStatus !== 'ok') {
             setPurchaseError('Crie a trustline para o stablecoin antes de comprar.');
@@ -540,12 +679,17 @@ export default function TradeTokensPage() {
             return;
         }
 
-        const resolvedIssuer =
-            (issuerAddress && issuerAddress.trim()) || project.issuerAddress?.trim() || '';
+        const resolvedIssuer = mpt
+            ? mpt.issuerAddress
+            : ((issuerAddress && issuerAddress.trim()) || project?.issuerAddress?.trim() || '');
         if (!resolvedIssuer) {
             setPurchaseError('Informe o endereço do emissor para concluir a compra.');
             return;
         }
+
+        // Determinar currency/identificação do token
+        const tokenCurrency = mpt?.currency || mpt?.ticker || project?.currency || '';
+        const tokenLabel = mpt?.name || project?.label || 'Token';
 
         setIsSubmitting(true);
         setPurchaseError(null);
@@ -557,7 +701,7 @@ export default function TradeTokensPage() {
                 // TakerGets: token que queremos receber
                 // TakerPays: stablecoin que vamos pagar
                 const takerGets = {
-                    currency: project.currency,
+                    currency: tokenCurrency,
                     issuer: resolvedIssuer,
                     value: purchaseAmount,
                 };
@@ -576,12 +720,15 @@ export default function TradeTokensPage() {
 
                 await registerAction({
                     type: 'dex_offer',
-                    token: { currency: project.currency, issuer: resolvedIssuer },
+                    token: mpt 
+                        ? { mptokenIssuanceID: mpt.issuanceIdHex }
+                        : { currency: tokenCurrency, issuer: resolvedIssuer },
                     actor: currentAccount.address,
                     network: currentAccount.network,
                     txHash: hash,
                     metadata: { 
-                        project: project.id,
+                        project: project?.id,
+                        mptId: mpt?.id,
                         type: 'buy',
                         amount: purchaseAmount,
                         price: buyPrice,
@@ -593,26 +740,38 @@ export default function TradeTokensPage() {
                 loadMyOffers();
                 loadBookOffers();
             } else {
-                // Pagamento direto (modo legado)
-                const response = await sendMPToken({
-                    sender: currentAccount.address,
-                    destination: resolvedIssuer,
-                    amount: purchaseAmount,
-                    currency: selectedStable.currency,
-                    issuer: selectedStable.issuer,
-                    memo: `Compra ${project.label}`,
-                });
+                // Pagamento direto - usar mptokenIssuanceID se MPT selecionado
+                const paymentParams = mpt
+                    ? {
+                        sender: currentAccount.address,
+                        destination: resolvedIssuer,
+                        amount: purchaseAmount,
+                        mptokenIssuanceID: mpt.issuanceIdHex, // Formato MPT moderno
+                        memo: `Compra ${tokenLabel}`,
+                    }
+                    : {
+                        sender: currentAccount.address,
+                        destination: resolvedIssuer,
+                        amount: purchaseAmount,
+                        currency: selectedStable.currency,
+                        issuer: selectedStable.issuer,
+                        memo: `Compra ${tokenLabel}`,
+                    };
+
+                const response = await sendMPToken(paymentParams);
                 const hash = extractTransactionHash(response);
 
                 await registerAction({
                     type: 'payment',
-                    token: { currency: selectedStable.currency, issuer: selectedStable.issuer },
+                    token: mpt 
+                        ? { mptokenIssuanceID: mpt.issuanceIdHex }
+                        : { currency: selectedStable.currency, issuer: selectedStable.issuer },
                     actor: currentAccount.address,
                     target: resolvedIssuer,
                     amount: purchaseAmount,
                     network: currentAccount.network,
                     txHash: hash ?? 'payment',
-                    metadata: { project: project.id },
+                    metadata: { project: project?.id, mptId: mpt?.id },
                 });
 
                 setPurchaseMessage('Pagamento enviado. Aguarde o recebimento do token pelo emissor.');
@@ -628,6 +787,7 @@ export default function TradeTokensPage() {
         account,
         selectedStable,
         selectedProject,
+        selectedMPT,
         purchaseAmount,
         buyPrice,
         trustlineStatus,
@@ -642,20 +802,27 @@ export default function TradeTokensPage() {
     const handleSell = useCallback(async () => {
         const currentAccount = account;
         const project = selectedProject;
+        const mpt = selectedMPT;
 
-        if (!currentAccount || !selectedStable || !project) return;
+        // Precisa de conta, stablecoin e (MPT ou preset)
+        if (!currentAccount || !selectedStable) return;
+        if (!mpt && !project) return;
 
         if (mptTrustlineStatus !== 'ok') {
             setSellError('Crie a trustline do token antes de vender.');
             return;
         }
 
-        const resolvedIssuer =
-            (issuerAddress && issuerAddress.trim()) || project.issuerAddress?.trim() || '';
+        const resolvedIssuer = mpt
+            ? mpt.issuerAddress
+            : ((issuerAddress && issuerAddress.trim()) || project?.issuerAddress?.trim() || '');
         if (!resolvedIssuer) {
             setSellError('Informe o endereço do emissor para concluir a venda.');
             return;
         }
+
+        // Determinar currency/identificação do token
+        const tokenCurrency = mpt?.currency || mpt?.ticker || project?.currency || '';
 
         setIsSubmitting(true);
         setSellError(null);
@@ -672,7 +839,7 @@ export default function TradeTokensPage() {
                     value: (parseFloat(sellAmount) * parseFloat(sellPrice)).toFixed(6),
                 };
                 const takerPays = {
-                    currency: project.currency,
+                    currency: tokenCurrency,
                     issuer: resolvedIssuer,
                     value: sellAmount,
                 };
@@ -686,12 +853,15 @@ export default function TradeTokensPage() {
 
                 await registerAction({
                     type: 'dex_offer',
-                    token: { currency: project.currency, issuer: resolvedIssuer },
+                    token: mpt
+                        ? { mptokenIssuanceID: mpt.issuanceIdHex }
+                        : { currency: tokenCurrency, issuer: resolvedIssuer },
                     actor: currentAccount.address,
                     network: currentAccount.network,
                     txHash: hash,
                     metadata: { 
-                        project: project.id,
+                        project: project?.id,
+                        mptId: mpt?.id,
                         type: 'sell',
                         amount: sellAmount,
                         price: sellPrice,
@@ -703,26 +873,38 @@ export default function TradeTokensPage() {
                 loadMyOffers();
                 loadBookOffers();
             } else {
-                // Pagamento direto (modo legado)
-                const response = await sendMPToken({
-                    sender: currentAccount.address,
-                    destination: resolvedIssuer,
-                    amount: sellAmount,
-                    currency: project.currency,
-                    issuer: resolvedIssuer,
-                    memo: 'Venda MPT',
-                });
+                // Pagamento direto - usar mptokenIssuanceID se MPT selecionado
+                const paymentParams = mpt
+                    ? {
+                        sender: currentAccount.address,
+                        destination: resolvedIssuer,
+                        amount: sellAmount,
+                        mptokenIssuanceID: mpt.issuanceIdHex, // Formato MPT moderno
+                        memo: 'Venda MPT',
+                    }
+                    : {
+                        sender: currentAccount.address,
+                        destination: resolvedIssuer,
+                        amount: sellAmount,
+                        currency: tokenCurrency,
+                        issuer: resolvedIssuer,
+                        memo: 'Venda MPT',
+                    };
+
+                const response = await sendMPToken(paymentParams);
                 const hash = extractTransactionHash(response);
 
                 await registerAction({
                     type: 'payment',
-                    token: { currency: project.currency, issuer: resolvedIssuer },
+                    token: mpt
+                        ? { mptokenIssuanceID: mpt.issuanceIdHex }
+                        : { currency: tokenCurrency, issuer: resolvedIssuer },
                     actor: currentAccount.address,
                     target: resolvedIssuer,
                     amount: sellAmount,
                     network: currentAccount.network,
                     txHash: hash ?? 'sell',
-                    metadata: { project: project.id, action: 'sell' },
+                    metadata: { project: project?.id, mptId: mpt?.id, action: 'sell' },
                 });
 
                 setSellMessage('Token enviado ao emissor. Liquidação será processada manualmente.');
@@ -734,7 +916,7 @@ export default function TradeTokensPage() {
         } finally {
             setIsSubmitting(false);
         }
-    }, [account, selectedStable, selectedProject, sellAmount, sellPrice, mptTrustlineStatus, refreshAccount, issuerAddress, showDEX, loadMyOffers, loadBookOffers]);
+    }, [account, selectedStable, selectedProject, selectedMPT, sellAmount, sellPrice, mptTrustlineStatus, refreshAccount, issuerAddress, showDEX, loadMyOffers, loadBookOffers]);
 
     const handleCancelOffer = useCallback(async (sequence: number) => {
         if (!account) return;
@@ -767,7 +949,7 @@ export default function TradeTokensPage() {
             {/* Header com Wallet e Theme Toggle */}
             <div className="fixed top-4 right-4 z-50 flex items-center gap-3">
                 <WalletSelector />
-                <ThemeToggle />
+            <ThemeToggle />
             </div>
 
             <div className="container mx-auto px-4 py-8 md:py-12">
@@ -893,6 +1075,19 @@ export default function TradeTokensPage() {
                             <p className="text-sm">{crossmarkError}</p>
                         </div>
                     )}
+
+                    {/* Informações da Carteira Conectada */}
+                    {isConnected && account && (
+                        <div className="mt-6">
+                            <WalletInfo
+                                address={account.address}
+                                network={account.network as 'testnet' | 'devnet' | 'mainnet'}
+                                label="Crossmark"
+                                showHistory={true}
+                                compact={false}
+                            />
+                        </div>
+                    )}
                 </motion.section>
 
                 <motion.section
@@ -931,6 +1126,40 @@ export default function TradeTokensPage() {
                             <div className="text-sm text-gray-600 dark:text-gray-300">
                                 Saldo estimado: {balance} {selectedStable?.currency}
                             </div>
+                            
+                            {/* Saldo XRP e Faucet */}
+                            <div className="pt-3 border-t border-gray-200 dark:border-gray-700">
+                                <div className="flex items-center justify-between">
+                                    <div className="text-sm text-gray-600 dark:text-gray-300">
+                                        Saldo XRP: {xrpBalance !== null ? `${xrpBalance.toFixed(2)} XRP` : 'Carregando...'}
+                                    </div>
+                                    {account?.network !== 'mainnet' && (
+                                        <button
+                                            onClick={requestFaucet}
+                                            disabled={requestingFaucet || !isConnected}
+                                            className="px-3 py-1 text-xs bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg font-semibold shadow disabled:opacity-50 flex items-center gap-1"
+                                        >
+                                            {requestingFaucet ? (
+                                                <>
+                                                    <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                                    Solicitando...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Coins className="w-3 h-3" />
+                                                    Solicitar Faucet
+                                                </>
+                                            )}
+                                        </button>
+                                    )}
+                                </div>
+                                {faucetMessage && (
+                                    <p className={`text-xs mt-1 ${faucetMessage.includes('Erro') ? 'text-red-500' : 'text-green-500'}`}>
+                                        {faucetMessage}
+                                    </p>
+                                )}
+                            </div>
+                            
                             <button
                                 onClick={handleCreateTrustline}
                                 disabled={trustlineStatus === 'ok' || isSubmitting || !isConnected}

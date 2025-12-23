@@ -98,7 +98,17 @@ export function WalletSelector({
   }, [adminMode, selectedServiceWallet, serviceWallets, onServiceWalletSelect]);
 
   const handleSelectServiceWallet = async (wallet: ServiceWallet) => {
+    // IMPORTANTE: Desconectar Crossmark ao selecionar ServiceWallet
+    // Só pode haver UM tipo de carteira ativa por vez
+    if (crossmark.isConnected) {
+      console.log('[WalletSelector] Desconectando Crossmark para usar ServiceWallet');
+      await crossmark.disconnect();
+    }
+    
     localStorage.setItem('terrafi:selected-service-wallet', wallet.id);
+    // Limpar flag de Crossmark selecionada
+    localStorage.removeItem('terrafi:use-crossmark');
+    
     if (onServiceWalletSelect) {
       onServiceWalletSelect(wallet);
     }
@@ -106,10 +116,23 @@ export function WalletSelector({
   };
 
   const handleConnectCrossmark = async () => {
+    // IMPORTANTE: Limpar ServiceWallet ao conectar Crossmark
+    // Só pode haver UM tipo de carteira ativa por vez
+    localStorage.removeItem('terrafi:selected-service-wallet');
+    localStorage.setItem('terrafi:use-crossmark', 'true');
+    
+    // Limpar seleção de ServiceWallet se houver callback
+    if (onServiceWalletSelect) {
+      // @ts-ignore - passando null para limpar
+      onServiceWalletSelect(null);
+    }
+    
     await crossmark.connect();
+    setIsOpen(false);
   };
 
   const handleDisconnectCrossmark = async () => {
+    localStorage.removeItem('terrafi:use-crossmark');
     await crossmark.disconnect();
   };
 

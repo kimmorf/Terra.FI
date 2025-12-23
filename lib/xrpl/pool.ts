@@ -121,12 +121,12 @@ export class XRPLConnectionPool {
     // Tentar cada endpoint disponível
     for (const endpoint of endpoints) {
       console.log(`[XRPL Pool] Tentando conectar a ${network} via ${endpoint}...`);
-      
-      const client = new Client(endpoint);
+    
+    const client = new Client(endpoint);
 
-      try {
-        // Conectar
-        await client.connect();
+    try {
+      // Conectar
+      await client.connect();
         console.log(`[XRPL Pool] connect() OK para ${network} via ${endpoint}`);
 
         // Aguardar um pouco para a conexão estabilizar
@@ -140,11 +140,11 @@ export class XRPLConnectionPool {
           retries--;
         }
         
-        if (!client.isConnected()) {
+      if (!client.isConnected()) {
           console.log(`[XRPL Pool] Conexão não estabelecida, tentando próximo endpoint...`);
           try { await client.disconnect(); } catch {}
           continue;
-        }
+      }
 
         // Health check simples: server_info (tolerante a falhas)
         try {
@@ -158,8 +158,8 @@ export class XRPLConnectionPool {
             continue;
           }
         }
-        
-        return client;
+      
+      return client;
       } catch (error: any) {
         console.error(`[XRPL Pool] Erro ao conectar ${network} via ${endpoint}:`, error.message);
         lastError = error;

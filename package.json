@@ -33,7 +33,10 @@
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
     "test:report": "tsx scripts/generate-test-report.ts",
-    "test:mpt-flow": "tsx scripts/tests/test-mpt-flow.ts"
+    "test:mpt-flow": "tsx scripts/tests/test-mpt-flow.ts",
+    "test:mpt": "vitest run tests/e2e/mpt-operations.test.ts",
+    "test:mpt:api": "vitest run tests/e2e/mpt-api-integration.test.ts",
+    "test:mpt:all": "vitest run tests/e2e/mpt-*.test.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -55,7 +58,7 @@
     "prisma": "^5.9.0",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
-    "xrpl": "^4.4.3"
+    "xrpl": "^4.5.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.56.1",

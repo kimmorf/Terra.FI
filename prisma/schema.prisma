@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -10,19 +7,18 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Better Auth tables
 model User {
   id            String       @id @default(cuid())
   name          String?
   email         String?      @unique
   emailVerified Boolean      @default(false)
   image         String?
-  walletAddress String?      @unique // Endereço da carteira XRPL (Crossmark)
+  walletAddress String?      @unique
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
   accounts      Account[]
-  sessions      Session[]
   investments   Investment[]
+  sessions      Session[]
 }
 
 model Account {
@@ -31,15 +27,14 @@ model Account {
   type              String
   provider          String
   providerAccountId String
-  refresh_token     String? @db.Text
-  access_token      String? @db.Text
+  refresh_token     String?
+  access_token      String?
   expires_at        Int?
   token_type        String?
   scope             String?
-  id_token          String? @db.Text
+  id_token          String?
   session_state     String?
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerAccountId])
 }
@@ -60,19 +55,18 @@ model VerificationToken {
   @@unique([identifier, token])
 }
 
-// Investment models
 model InvestmentProject {
   id           String        @id @default(cuid())
-  name         String // LAND-MPT, BUILD-MPT, REV-MPT, COL-MPT
-  type         String // LAND, BUILD, REV, COL
+  name         String
+  type         String
   description  String?
-  purpose      String // Propósito do token
-  example      String? // Exemplo de uso
-  minAmount    Float         @default(0) // Valor mínimo de investimento
-  maxAmount    Float? // Valor máximo de investimento
-  totalAmount  Float         @default(0) // Total arrecadado
-  targetAmount Float // Meta de arrecadação
-  status       String        @default("active") // active, completed, paused
+  purpose      String
+  example      String?
+  minAmount    Float         @default(0)
+  maxAmount    Float?
+  totalAmount  Float         @default(0)
+  targetAmount Float
+  status       String        @default("active")
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
   investments  Investment[]
@@ -82,12 +76,12 @@ model InvestmentProject {
 model ProjectFile {
   id          String            @id @default(cuid())
   projectId   String
-  fileName    String // Nome original do arquivo
-  filePath    String // Caminho do arquivo no servidor
-  fileType    String // Tipo MIME (application/pdf, etc)
-  fileSize    Int // Tamanho em bytes
-  description String? // Descrição opcional do arquivo
-  uploadedBy  String? // ID do usuário que fez upload (opcional)
+  fileName    String
+  filePath    String
+  fileType    String
+  fileSize    Int
+  description String?
+  uploadedBy  String?
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt
   project     InvestmentProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
@@ -100,14 +94,14 @@ model Investment {
   id        String            @id @default(cuid())
   userId    String
   projectId String
-  amount    Float // Valor em R$
-  xrpAmount Float? // Valor em XRP enviado
-  txHash    String?           @unique // Hash da transação XRP (único para idempotência)
-  status    String            @default("pending") // pending, confirmed, published, denied, cancelled
+  amount    Float
+  xrpAmount Float?
+  txHash    String?           @unique
+  status    String            @default("pending")
   createdAt DateTime          @default(now())
   updatedAt DateTime          @updatedAt
-  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   project   InvestmentProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model RevPayoutBatch {
@@ -118,7 +112,7 @@ model RevPayoutBatch {
   totalAmount  Float
   memo         String?
   scheduledFor DateTime?
-  status       String          @default("scheduled") // scheduled, processing, completed, error, cancelled
+  status       String          @default("scheduled")
   createdAt    DateTime        @default(now())
   updatedAt    DateTime        @updatedAt
   items        RevPayoutItem[]
@@ -131,7 +125,7 @@ model RevPayoutItem {
   holderBalance Float
   share         Float
   amount        Float
-  status        String         @default("pending") // pending, processing, paid, error, skipped, trustline_missing
+  status        String         @default("pending")
   attempts      Int            @default(0)
   txHash        String?
   lastError     String?
@@ -143,14 +137,13 @@ model RevPayoutItem {
   @@index([status])
 }
 
-// Elysia logs - Migrado de memória para banco
 model IssuanceRecord {
   id          String   @id @default(cuid())
   projectId   String
   projectName String
   tokenType   String
   currency    String
-  amount      String   @db.Text
+  amount      String
   decimals    Int
   issuer      String
   network     String
@@ -167,12 +160,12 @@ model IssuanceRecord {
 
 model ActionRecord {
   id            String   @id @default(cuid())
-  type          String // authorize, payment, freeze, clawback, payout, error, trustset
+  type          String
   tokenCurrency String
   tokenIssuer   String
   actor         String
   target        String?
-  amount        String?  @db.Text
+  amount        String?
   network       String
   txHash        String
   metadata      Json     @default("{}")
@@ -185,26 +178,23 @@ model ActionRecord {
   @@index([tokenCurrency, tokenIssuer])
 }
 
-// Auditoria de flags e permissões
 model FlagAudit {
   id               String   @id @default(cuid())
-  operation        String // freeze, clawback, authorize
+  operation        String
   tokenCurrency    String
   tokenIssuer      String
-  executor         String // Wallet que executou a operação
-  target           String? // Wallet alvo (holder)
-  amount           String?  @db.Text
+  executor         String
+  target           String?
+  amount           String?
   network          String
   txHash           String
-  // Informações de auditoria
   sourceIP         String?
   userAgent        String?
-  regularKeyUsed   Boolean  @default(false) // Se foi executado via RegularKey
-  coldWallet       String? // Wallet cold (issuer principal)
-  hotWallet        String? // Wallet hot (RegularKey, se usado)
-  // Permissões verificadas
+  regularKeyUsed   Boolean  @default(false)
+  coldWallet       String?
+  hotWallet        String?
   hadPermission    Boolean  @default(true)
-  permissionReason String? // Razão se não tinha permissão
+  permissionReason String?
   metadata         Json     @default("{}")
   createdAt        DateTime @default(now())
 
@@ -216,21 +206,16 @@ model FlagAudit {
   @@index([tokenCurrency, tokenIssuer])
 }
 
-// Configuração de permissões por issuer
 model IssuerPermission {
   id                           String   @id @default(cuid())
-  issuer                       String // Wallet issuer
+  issuer                       String
   network                      String
-  // Permissões por operação
   canFreeze                    Boolean  @default(false)
   canClawback                  Boolean  @default(false)
-  canAuthorize                 Boolean  @default(true) // Autorizar é mais comum
-  // Wallets autorizadas
-  authorizedWallets            String[] // Lista de wallets que podem executar operações
-  // RegularKey configurada
-  regularKey                   String? // Wallet hot (RegularKey)
-  coldWallet                   String // Wallet cold (issuer principal)
-  // Configurações
+  canAuthorize                 Boolean  @default(true)
+  authorizedWallets            String[]
+  regularKey                   String?
+  coldWallet                   String
   requireColdWalletForFreeze   Boolean  @default(true)
   requireColdWalletForClawback Boolean  @default(true)
   metadata                     Json     @default("{}")
@@ -243,47 +228,44 @@ model IssuerPermission {
 }
 
 model ServiceWallet {
-  id            String   @id @default(cuid())
-  label         String
-  document      String?
-  type          String   @default("issuer") // ISSUER | DISTRIBUTION | USER_INTERNAL | USER_EXTERNAL
-  network       String   @default("testnet")
-  address       String   @unique
-  publicKey     String?
-  seedEncrypted String
-  isActive      Boolean  @default(false)
-  userId        String? // Para carteiras de usuário (USER_INTERNAL)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  // Relações
-  issuedMPTs       MPTIssuance[]      @relation("IssuerWallet")
-  distributionMPTs MPTIssuance[]      @relation("DistributionWallet")
+  id               String             @id @default(cuid())
+  label            String
+  document         String?
+  type             String             @default("issuer")
+  network          String             @default("testnet")
+  address          String             @unique
+  publicKey        String?
+  seedEncrypted    String
+  isActive         Boolean            @default(false)
+  userId           String?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
   authorizations   MPTAuthorization[]
+  distributionMPTs MPTIssuance[]      @relation("DistributionWallet")
+  issuedMPTs       MPTIssuance[]      @relation("IssuerWallet")
 
   @@index([type, isActive])
   @@index([userId])
 }
 
-// Purchase Flow - Compra Primária com Idempotência
 model Purchase {
   id             String        @id @default(cuid())
-  purchaseId     String        @unique // Chave idempotente externa
+  purchaseId     String        @unique
   userId         String
   projectId      String?
   amount         Float
   currency       String
-  status         String        @default("PENDING") // PENDING, FUNDS_CONFIRMED, MPT_SENT, COMPLETED, FAILED, COMPENSATION_REQUIRED, ACTION_REQUIRED
+  status         String        @default("PENDING")
   mptCurrency    String?
   mptAmount      String?
   mptIssuer      String?
   fundsTxHash    String?       @unique
   mptTxHash      String?
   retryCount     Int           @default(0)
-  lastError      String?       @db.Text
+  lastError      String?
   engineResult   String?
   compensationId String?
-  actionRequired String? // RequireAuth, Trustline, etc.
+  actionRequired String?
   lockedAt       DateTime?
   lockedBy       String?
   metadata       Json          @default("{}")
@@ -299,13 +281,12 @@ model Purchase {
   @@index([createdAt])
 }
 
-// Compensação
 model Compensation {
   id             String    @id @default(cuid())
   purchaseId     String    @unique
-  type           String // REFUND, RETRY_MPT, MANUAL
-  status         String    @default("PENDING") // PENDING, APPROVED, EXECUTED, FAILED
-  reason         String    @db.Text
+  type           String
+  status         String    @default("PENDING")
+  reason         String
   approvedBy     String?
   approvedAt     DateTime?
   executedAt     DateTime?
@@ -314,17 +295,16 @@ model Compensation {
   metadata       Json      @default("{}")
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
-  purchase       Purchase? @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  purchase       Purchase  @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
 
   @@index([status])
   @@index([purchaseId])
 }
 
-// Circuit Breaker State
 model CircuitBreakerState {
   id           String    @id @default(cuid())
   endpoint     String    @unique
-  state        String    @default("CLOSED") // CLOSED, OPEN, HALF_OPEN
+  state        String    @default("CLOSED")
   failureCount Int       @default(0)
   lastFailure  DateTime?
   openedAt     DateTime?
@@ -335,45 +315,31 @@ model CircuitBreakerState {
   @@index([state])
 }
 
-// MPT Issuances - Emissões de Multi-Purpose Tokens
 model MPTIssuance {
-  id            String @id @default(cuid())
-  type          String // LAND | BUILD | REV | COL
-  symbol        String // Ex: "LAND-ITA-001"
-  name          String // Ex: "Viverde Itaipu LAND"
-  maximumAmount String @db.Text // Quantidade máxima (string para precisão)
-  decimals      Int    @default(0)
-  assetScale    Int    @default(0)
-  transferFee   Int    @default(0) // Basis points (0-50000)
-
-  // Wallets
+  id                   String             @id @default(cuid())
+  type                 String
+  symbol               String
+  name                 String
+  maximumAmount        String
+  decimals             Int                @default(0)
+  assetScale           Int                @default(0)
+  transferFee          Int                @default(0)
   issuerWalletId       String
   distributionWalletId String?
-
-  // XRPL On-chain
-  xrplIssuanceId String? @unique // MPTokenIssuanceID (hex)
-  xrplCurrency   String? // Currency gerado automaticamente pelo XRPL
-  issuanceTxHash String? @unique
-
-  // Metadata
-  metadataJson Json @default("{}")
-  flags        Json @default("{}") // Flags do MPT
-
-  // Estado
-  network String @default("testnet")
-  status  String @default("CREATED") // CREATED | MINTED | ACTIVE | PAUSED
-
-  // Supply tracking
-  totalMinted         String @default("0") @db.Text
-  distributionBalance String @default("0") @db.Text
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Relações
-  issuerWallet       ServiceWallet      @relation("IssuerWallet", fields: [issuerWalletId], references: [id])
-  distributionWallet ServiceWallet?     @relation("DistributionWallet", fields: [distributionWalletId], references: [id])
-  authorizations     MPTAuthorization[]
+  xrplIssuanceId       String?            @unique
+  xrplCurrency         String?
+  issuanceTxHash       String?            @unique
+  metadataJson         Json               @default("{}")
+  flags                Json               @default("{}")
+  network              String             @default("testnet")
+  status               String             @default("CREATED")
+  totalMinted          String             @default("0")
+  distributionBalance  String             @default("0")
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  authorizations       MPTAuthorization[]
+  distributionWallet   ServiceWallet?     @relation("DistributionWallet", fields: [distributionWalletId], references: [id])
+  issuerWallet         ServiceWallet      @relation("IssuerWallet", fields: [issuerWalletId], references: [id])
 
   @@index([type])
   @@index([symbol])
@@ -384,26 +350,23 @@ model MPTIssuance {
   @@index([network])
 }
 
-// MPT Authorizations - Autorizações para receber MPT
 model MPTAuthorization {
-  id                     String   @id @default(cuid())
+  id                     String         @id @default(cuid())
   issuanceId             String
-  walletId               String? // Para carteiras internas (USER_INTERNAL)
-  walletAddress          String // Endereço XRPL (para Crossmark ou internas)
-  walletType             String // "crossmark" | "internal"
-  status                 String   @default("PENDING") // PENDING | AUTHORIZED | REJECTED
-  authorizationTxHash    String?  @unique
-  authorizationRequestId String?  @unique // Para rastrear autorizações pendentes do Crossmark
-  network                String   @default("testnet")
-  metadata               Json     @default("{}")
-  createdAt              DateTime @default(now())
-  updatedAt              DateTime @updatedAt
+  walletId               String?
+  walletAddress          String
+  walletType             String
+  status                 String         @default("PENDING")
+  authorizationTxHash    String?        @unique
+  authorizationRequestId String?        @unique
+  network                String         @default("testnet")
+  metadata               Json           @default("{}")
+  createdAt              DateTime       @default(now())
+  updatedAt              DateTime       @updatedAt
+  issuance               MPTIssuance    @relation(fields: [issuanceId], references: [id], onDelete: Cascade)
+  wallet                 ServiceWallet? @relation(fields: [walletId], references: [id])
 
-  // Relações
-  issuance MPTIssuance    @relation(fields: [issuanceId], references: [id], onDelete: Cascade)
-  wallet   ServiceWallet? @relation(fields: [walletId], references: [id])
-
-  @@unique([issuanceId, walletAddress]) // Uma autorização por wallet por MPT
+  @@unique([issuanceId, walletAddress])
   @@index([issuanceId])
   @@index([walletAddress])
   @@index([walletId])

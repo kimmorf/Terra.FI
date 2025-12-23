@@ -2,6 +2,7 @@
  * Reliable submission de transações XRPL com retry e validação
  */
 
+import { Client, Wallet } from 'xrpl';
 import { xrplPool, type XRPLNetwork } from './pool';
 import { withXRPLRetry } from '../utils/retry';
 
@@ -115,4 +116,145 @@ export class ReliableSubmission {
 
     throw new Error('Transação não foi validada dentro do timeout');
   }
+}
+
+/**
+ * Gera idempotency key único
+ */
+export function generateIdempotencyKey(): string {
+  return `idemp_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
+}
+
+export interface ReliableSubmitOptions {
+  idempotencyKey?: string;
+  maxRetries?: number;
+  timeout?: number;
+}
+
+export interface ReliableSubmitResult {
+  success: boolean;
+  txHash: string | null;
+  validated: boolean;
+  error?: string;
+  retryCount?: number;
+}
+
+const ENDPOINTS: Record<string, string[]> = {
+  testnet: ['wss://s.altnet.rippletest.net:51233'],
+  devnet: ['wss://s.devnet.rippletest.net:51233'],
+  mainnet: ['wss://xrplcluster.com/', 'wss://s1.ripple.com/'],
+};
+
+/**
+ * Submete transação de forma confiável
+ * Usado para testes e operações que precisam de autofill + sign + submit
+ */
+export async function reliableSubmit(
+  transaction: Record<string, unknown>,
+  network: 'testnet' | 'mainnet' | 'devnet' = 'testnet',
+  options: ReliableSubmitOptions = {}
+): Promise<ReliableSubmitResult> {
+  const { idempotencyKey, maxRetries = 3, timeout = 60000 } = options;
+
+  const endpoints = ENDPOINTS[network] || ENDPOINTS.testnet;
+  let client: Client | null = null;
+  let retryCount = 0;
+  let lastError: Error | null = null;
+
+  while (retryCount <= maxRetries) {
+    try {
+      const endpoint = endpoints[retryCount % endpoints.length];
+      client = new Client(endpoint);
+      await client.connect();
+
+      // Preparar transação
+      const prepared = await client.autofill(transaction);
+
+      // Buscar wallet para assinar
+      // Nota: Em testes, a transaction já deve ter Account preenchido
+      // e o caller deve passar a wallet ou seed
+      const senderAddress = prepared.Account;
+      
+      // Tentar buscar wallet do pool
+      const walletFromPool = await getWalletForAddress(senderAddress, network);
+      
+      if (!walletFromPool) {
+        throw new Error(`Wallet não encontrada para ${senderAddress}`);
+      }
+
+      // Assinar
+      const signed = walletFromPool.sign(prepared);
+
+      // Submeter e aguardar
+      const result = await client.submitAndWait(signed.tx_blob);
+
+      const txHash = result.result.hash;
+      const validated = result.result.validated || false;
+      const txResult = (result.result.meta as any)?.TransactionResult || 'unknown';
+
+      await client.disconnect();
+
+      if (txResult === 'tesSUCCESS') {
+        return {
+          success: true,
+          txHash: txHash || null,
+          validated,
+          retryCount,
+        };
+      } else {
+        return {
+          success: false,
+          txHash: txHash || null,
+          validated,
+          error: txResult,
+          retryCount,
+        };
+      }
+    } catch (error: any) {
+      lastError = error;
+      retryCount++;
+
+      if (client) {
+        try {
+          await client.disconnect();
+        } catch {}
+      }
+
+      if (retryCount <= maxRetries) {
+        // Espera antes de retry
+        await new Promise((resolve) => setTimeout(resolve, 1000 * retryCount));
+      }
+    }
+  }
+
+  return {
+    success: false,
+    txHash: null,
+    validated: false,
+    error: lastError?.message || 'Max retries exceeded',
+    retryCount,
+  };
+}
+
+// Cache de wallets para testes
+const testWallets: Map<string, Wallet> = new Map();
+
+/**
+ * Registra wallet para uso em testes
+ */
+export function registerTestWallet(address: string, wallet: Wallet): void {
+  testWallets.set(address, wallet);
+}
+
+/**
+ * Busca wallet por endereço
+ */
+async function getWalletForAddress(address: string, network: string): Promise<Wallet | null> {
+  // Primeiro tenta do cache de testes
+  if (testWallets.has(address)) {
+    return testWallets.get(address)!;
+  }
+
+  // Se não encontrar, retorna null (caller precisa registrar)
+  return null;
 }

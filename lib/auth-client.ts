@@ -30,18 +30,15 @@ export async function signInWithWallet(address: string, network?: string, public
     }
 
     const data = await response.json();
-    
-    // Força atualização da sessão do Better Auth
-    // O Better Auth precisa ser notificado sobre a nova sessão
+
+    // Aguarda um pouco para garantir que o cookie foi definido
     if (typeof window !== 'undefined') {
-      // Aguarda um pouco para garantir que o cookie foi definido
       await new Promise(resolve => setTimeout(resolve, 100));
-      
-      // Força reload para garantir que a sessão seja detectada pelo useSession
-      // Isso é necessário porque o Better Auth não detecta mudanças de cookie automaticamente
-      window.location.reload();
     }
-    
+
+    // Não fazemos reload aqui - o componente React vai atualizar o estado
+    // O reload causava problemas de 404 quando a URL continha parâmetros
+
     return data;
   } catch (error) {
     console.error('Erro ao fazer login com carteira:', error);

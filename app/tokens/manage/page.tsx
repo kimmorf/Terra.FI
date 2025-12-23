@@ -22,6 +22,7 @@ import {
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { BackgroundParticles } from '@/components/BackgroundParticles';
 import { WalletSelector } from '@/components/WalletSelector';
+import { WalletInfo } from '@/components/WalletInfo';
 import { useCrossmarkContext } from '@/lib/crossmark/CrossmarkProvider';
 import {
     authorizeMPToken,
@@ -105,12 +106,20 @@ export default function ManageTokensPage() {
     );
     const selectedConfig = TOKEN_CONFIG[selectedTokenId] ?? { decimals: 2, transferable: true };
 
+    // MPTs emitidos (carregados do XRPL)
+    const [issuedMPTs, setIssuedMPTs] = useState<any[]>([]);
+    const [issuedMPTsLoading, setIssuedMPTsLoading] = useState(false);
+    const [selectedMPT, setSelectedMPT] = useState<any | null>(null);
+
     const [copied, setCopied] = useState(false);
 
     // Authorize state
     const [holderAddress, setHolderAddress] = useState('');
     const [authorizeError, setAuthorizeError] = useState<string | null>(null);
     const [authorizeSuccess, setAuthorizeSuccess] = useState<string | null>(null);
+    
+    // Auto-autorização (para receber MPTs)
+    const [selfAuthMptId, setSelfAuthMptId] = useState(''); // MPTokenIssuanceID para auto-autorização
 
     // Payment state
     const [destinationAddress, setDestinationAddress] = useState('');
@@ -263,6 +272,41 @@ export default function ManageTokensPage() {
         };
     }, [account]);
 
+    // Carregar MPTs emitidos pelo account
+    useEffect(() => {
+        if (!account) {
+            setIssuedMPTs([]);
+            setSelectedMPT(null);
+            return;
+        }
+
+        let cancelled = false;
+        setIssuedMPTsLoading(true);
+
+        fetch(`/api/mpt/list?issuer=${encodeURIComponent(account.address)}&network=${account.network}`)
+            .then((res) => res.json())
+            .then((data) => {
+                if (!cancelled) {
+                    setIssuedMPTs(data.tokens || []);
+                    // Selecionar o primeiro MPT automaticamente se houver
+                    if (data.tokens?.length > 0) {
+                        setSelectedMPT((prev: any) => prev || data.tokens[0]);
+                    }
+                }
+            })
+            .catch((error) => {
+                console.warn('[MPT] Falha ao carregar MPTs emitidos', error);
+                if (!cancelled) setIssuedMPTs([]);
+            })
+            .finally(() => {
+                if (!cancelled) setIssuedMPTsLoading(false);
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [account]);
+
     const handleConnect = useCallback(async () => {
         try {
             const success = await connect();
@@ -299,8 +343,8 @@ export default function ManageTokensPage() {
     }, [account?.address]);
 
     const handleAuthorize = useCallback(async (authorize: boolean) => {
-        if (!account || !selectedPreset) {
-            setAuthorizeError('Conecte sua Crossmark e selecione um token.');
+        if (!account) {
+            setAuthorizeError('Conecte sua Crossmark.');
             return;
         }
 
@@ -309,22 +353,40 @@ export default function ManageTokensPage() {
             return;
         }
 
+        // Precisamos do MPTokenIssuanceID (se tiver MPT selecionado) ou currency/issuer (legado)
+        if (!selectedMPT && !selectedPreset) {
+            setAuthorizeError('Selecione um token/MPT para autorizar.');
+            return;
+        }
+
         setIsSubmitting(true);
         setAuthorizeError(null);
         setAuthorizeSuccess(null);
 
         try {
-            const response = await authorizeMPToken({
-                issuer: account.address,
-                currency: selectedPreset.currency,
-                holder: holderAddress.trim(),
-                authorize,
-            });
+            // Usar MPTokenIssuanceID se disponível (MPT nativo), senão usar currency/issuer (legado)
+            const authParams = selectedMPT?.issuanceIdHex
+                ? {
+                    mptokenIssuanceID: selectedMPT.issuanceIdHex,
+                    holder: holderAddress.trim(),
+                    authorize,
+                    account: account.address, // Account que está autorizando
+                }
+                : {
+                    issuer: account.address,
+                    currency: selectedPreset?.currency,
+                    holder: holderAddress.trim(),
+                    authorize,
+                };
+
+            const response = await authorizeMPToken(authParams);
             const hash = extractTransactionHash(response);
 
             await registerAction({
                 type: 'authorize',
-                token: { currency: selectedPreset.currency, issuer: account.address },
+                token: selectedMPT?.issuanceIdHex 
+                    ? { mptokenIssuanceID: selectedMPT.issuanceIdHex }
+                    : { currency: selectedPreset?.currency || '', issuer: account.address },
                 actor: account.address,
                 target: holderAddress.trim(),
                 network: account.network,
@@ -344,11 +406,71 @@ export default function ManageTokensPage() {
         } finally {
             setIsSubmitting(false);
         }
-    }, [account, selectedPreset, holderAddress]);
+    }, [account, selectedPreset, selectedMPT, holderAddress]);
+    
+    // Auto-autorização: a conta Crossmark autoriza a si mesma a receber um MPT
+    const handleSelfAuthorize = useCallback(async () => {
+        if (!account) {
+            setAuthorizeError('Conecte sua Crossmark.');
+            return;
+        }
+
+        if (!selfAuthMptId.trim()) {
+            setAuthorizeError('Informe o MPTokenIssuanceID do token que deseja receber.');
+            return;
+        }
+
+        // Validar formato do MPTokenIssuanceID (64 caracteres hex)
+        const cleanedId = selfAuthMptId.trim().replace(/[^0-9A-Fa-f]/g, '');
+        if (cleanedId.length !== 64) {
+            setAuthorizeError('MPTokenIssuanceID inválido. Deve ter 64 caracteres hexadecimais.');
+            return;
+        }
+
+        setIsSubmitting(true);
+        setAuthorizeError(null);
+        setAuthorizeSuccess(null);
+
+        try {
+            // A conta autoriza a si mesma
+            const response = await authorizeMPToken({
+                mptokenIssuanceID: cleanedId.toUpperCase(),
+                holder: account.address, // Holder é a própria conta
+                authorize: true,
+                account: account.address, // Account que envia a transação
+            });
+            const hash = extractTransactionHash(response);
+
+            await registerAction({
+                type: 'authorize',
+                token: { mptokenIssuanceID: cleanedId.toUpperCase() },
+                actor: account.address,
+                target: account.address,
+                network: account.network,
+                txHash: hash ?? 'unknown',
+                metadata: { selfAuthorize: true },
+            });
+
+            setAuthorizeSuccess('Você autorizou sua conta a receber este MPT! Agora pode receber transferências.');
+            setSelfAuthMptId('');
+        } catch (error) {
+            console.error('Erro ao auto-autorizar:', error);
+            const message = error instanceof Error ? error.message : 'Falha ao autorizar.';
+            setAuthorizeError(message);
+        } finally {
+            setIsSubmitting(false);
+        }
+    }, [account, selfAuthMptId]);
 
     const handlePayment = useCallback(async () => {
-        if (!account || !selectedPreset) {
-            setPaymentError('Conecte sua Crossmark e selecione um token.');
+        if (!account) {
+            setPaymentError('Conecte sua Crossmark.');
+            return;
+        }
+
+        // Verificar se tem MPT ou preset selecionado
+        if (!selectedMPT && !selectedPreset) {
+            setPaymentError('Selecione um token para enviar.');
             return;
         }
 
@@ -368,43 +490,48 @@ export default function ManageTokensPage() {
             return;
         }
 
-        // opcional: verificar trustline
-        const trustline = await hasTrustLine({
-            account: destinationAddress.trim(),
-            currency: selectedPreset.currency,
-            issuer: account.address,
-            network: account.network,
-        }).catch(() => false);
-
-        if (!trustline) {
-            setPaymentError('O destinatário não possui trustline configurada para este MPT.');
-            return;
-        }
-
         setIsSubmitting(true);
         setPaymentError(null);
         setPaymentSuccess(null);
 
         try {
-            const response = await sendMPToken({
+            // Se tem MPT selecionado, usa o mptokenIssuanceID
+            // Caso contrário, usa o formato currency/issuer do preset
+            const paymentParams: any = {
                 sender: account.address,
                 destination: destinationAddress.trim(),
                 amount: sanitizedAmount,
-                currency: selectedPreset.currency,
-                issuer: account.address,
                 memo: paymentMemo.trim() || undefined,
-            });
+            };
+
+            if (selectedMPT?.issuanceIdHex) {
+                // Formato MPT moderno
+                paymentParams.mptokenIssuanceID = selectedMPT.issuanceIdHex;
+            } else if (selectedPreset) {
+                // Formato IOU legado
+                paymentParams.currency = selectedPreset.currency;
+                paymentParams.issuer = account.address;
+            } else {
+                throw new Error('Nenhum token selecionado para envio');
+            }
+
+            const response = await sendMPToken(paymentParams);
             const hash = extractTransactionHash(response);
 
             await registerAction({
                 type: 'payment',
-                token: { currency: selectedPreset.currency, issuer: account.address },
+                token: selectedMPT 
+                    ? { currency: selectedMPT.metadata?.name || 'MPT', issuer: account.address }
+                    : { currency: selectedPreset!.currency, issuer: account.address },
                 actor: account.address,
                 target: destinationAddress.trim(),
                 amount: sanitizedAmount,
                 network: account.network,
                 txHash: hash ?? 'unknown',
-                metadata: { memo: paymentMemo.trim() },
+                metadata: { 
+                    memo: paymentMemo.trim(),
+                    mptokenIssuanceID: selectedMPT?.issuanceIdHex || undefined,
+                },
             });
 
             setPaymentSuccess('Pagamento enviado com sucesso.');
@@ -419,6 +546,7 @@ export default function ManageTokensPage() {
     }, [
         account,
         selectedPreset,
+        selectedMPT,
         paymentAmount,
         destinationAddress,
         paymentMemo,
@@ -663,6 +791,19 @@ export default function ManageTokensPage() {
                             <p className="text-sm">{crossmarkError}</p>
                         </div>
                     )}
+
+                    {/* Informações da Carteira Conectada */}
+                    {isConnected && account && (
+                        <div className="mt-6">
+                            <WalletInfo
+                                address={account.address}
+                                network={account.network as 'testnet' | 'devnet' | 'mainnet'}
+                                label="Crossmark"
+                                showHistory={true}
+                                compact={false}
+                            />
+                        </div>
+                    )}
                 </motion.section>
 
                 <motion.section
@@ -777,13 +918,80 @@ export default function ManageTokensPage() {
                                 )}
                             </div>
 
+                            {/* Auto-autorização para RECEBER MPTs */}
+                            <div className="bg-gradient-to-br from-purple-50 to-blue-50 dark:from-purple-900/20 dark:to-blue-900/20 border border-purple-200 dark:border-purple-800 rounded-3xl shadow-lg p-6 space-y-4">
+                                <h3 className="text-xl font-semibold text-gray-800 dark:text-white flex items-center gap-2">
+                                    <Shield className="w-5 h-5 text-purple-600" /> Autorizar-se a Receber MPT
+                                </h3>
+                                <p className="text-sm text-gray-600 dark:text-gray-400">
+                                    <strong>Para receber MPTs</strong>, você precisa primeiro autorizar sua conta. 
+                                    Cole o MPTokenIssuanceID do token que deseja receber abaixo.
+                                </p>
+                                <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3">
+                                    <p className="text-xs text-yellow-700 dark:text-yellow-400">
+                                        <strong>Dica:</strong> Peça ao emissor o MPTokenIssuanceID (64 caracteres hexadecimais). 
+                                        Sem essa autorização, você não poderá receber o token.
+                                    </p>
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                                        MPTokenIssuanceID
+                                    </label>
+                                    <input
+                                        value={selfAuthMptId}
+                                        onChange={(event) => setSelfAuthMptId(event.target.value)}
+                                        placeholder="Ex: 6108E5C0D3651989..."
+                                        className="w-full px-4 py-2 border border-purple-300 dark:border-purple-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500 focus:border-transparent font-mono text-sm"
+                                    />
+                                </div>
+                                <button
+                                    onClick={handleSelfAuthorize}
+                                    disabled={isSubmitting || !isConnected || !selfAuthMptId.trim()}
+                                    className="w-full px-5 py-3 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white rounded-lg font-semibold shadow disabled:opacity-60 flex items-center justify-center gap-2"
+                                >
+                                    <Shield className="w-5 h-5" />
+                                    Autorizar Minha Conta a Receber
+                                </button>
+                            </div>
+
                             <div className="bg-white dark:bg-gray-900/70 border border-gray-200 dark:border-gray-800 rounded-3xl shadow-lg p-6 space-y-4">
                                 <h3 className="text-xl font-semibold text-gray-800 dark:text-white flex items-center gap-2">
                                     <SendHorizontal className="w-5 h-5" /> Enviar tokens
                                 </h3>
                                 <p className="text-sm text-gray-600 dark:text-gray-400">
-                                    Realize pagamentos utilizando {selectedPreset?.label}. Certifique-se de que o destino tem trustline ativa.
+                                    {selectedMPT 
+                                        ? `Enviando ${selectedMPT.metadata?.name || 'MPT'} (${selectedMPT.issuanceIdHex?.slice(0, 12)}...)`
+                                        : `Realize pagamentos utilizando ${selectedPreset?.label}. Certifique-se de que o destino tem trustline ativa.`
+                                    }
                                 </p>
+
+                                {/* Seletor de MPT emitido */}
+                                {issuedMPTs.length > 0 && (
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                                            Token para Enviar
+                                        </label>
+                                        <select
+                                            value={selectedMPT?.issuanceIdHex || ''}
+                                            onChange={(e) => {
+                                                const mpt = issuedMPTs.find((m) => m.issuanceIdHex === e.target.value);
+                                                setSelectedMPT(mpt || null);
+                                            }}
+                                            className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                        >
+                                            <option value="">Selecione um MPT emitido...</option>
+                                            {issuedMPTs.map((mpt) => (
+                                                <option key={mpt.issuanceIdHex} value={mpt.issuanceIdHex}>
+                                                    {mpt.metadata?.name || 'Token'} - {mpt.issuanceIdHex?.slice(0, 16)}...
+                                                </option>
+                                            ))}
+                                        </select>
+                                        {issuedMPTsLoading && (
+                                            <p className="text-xs text-gray-500 dark:text-gray-400">Carregando MPTs...</p>
+                                        )}
+                                    </div>
+                                )}
+
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div className="space-y-2">
                                         <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">
@@ -798,7 +1006,7 @@ export default function ManageTokensPage() {
                                     </div>
                                     <div className="space-y-2">
                                         <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-                                            Valor ({selectedPreset?.currency})
+                                            Valor ({selectedMPT?.metadata?.name || selectedPreset?.currency || 'tokens'})
                                         </label>
                                         <input
                                             value={paymentAmount}

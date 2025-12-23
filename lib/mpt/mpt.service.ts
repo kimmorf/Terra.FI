@@ -9,6 +9,7 @@ import { ReliableSubmission } from '../xrpl/reliable-submission';
 import type { IssueMPTDto } from './dto/issue-mpt.dto';
 import type { AuthorizeMPTDto } from './dto/authorize-mpt.dto';
 import type { SendMPTDto } from './dto/send-mpt.dto';
+import { resolveMPTID, authorizeMPTHolder, sendMPT, createMPT } from '../xrpl/mpt-helpers';
 
 export class MptService {
   private issuerSeed: string;
@@ -36,57 +37,22 @@ export class MptService {
   }
 
   async issue(dto: IssueMPTDto) {
-    if (!this.issuerSeed) {
-      throw new Error('XRPL_ISSUER_SECRET não configurado');
-    }
+    const result = await createMPT({
+      issuerAddress: xrpl.Wallet.fromSeed(this.issuerSeed).address,
+      issuerSeed: this.issuerSeed,
+      assetScale: dto.assetScale,
+      maximumAmount: dto.maximumAmount,
+      transferFee: dto.transferFee,
+      metadataOverrides: dto.metadataJSON,
+      flags: dto.flags,
+      network: this.network
+    });
 
-    const issuer = xrpl.Wallet.fromSeed(this.issuerSeed);
-    const client = await xrplPool.getClient(this.network);
-
-    try {
-      const MPTokenMetadata = dto.metadataJSON
-        ? Buffer.from(JSON.stringify(dto.metadataJSON)).toString('hex').toUpperCase()
-        : undefined;
-
-      const tx: any = {
-        TransactionType: 'MPTokenIssuanceCreate',
-        Account: issuer.address,
-        AssetScale: dto.assetScale ?? 0,
-        MaximumAmount: dto.maximumAmount ?? '0',
-        TransferFee: dto.transferFee ?? 0,
-      };
-
-      if (MPTokenMetadata) {
-        tx.MPTokenMetadata = MPTokenMetadata;
-      }
-
-      const flags = this.flagsToInt(dto.flags);
-      if (flags > 0) {
-        tx.Flags = flags;
-      }
-
-      // Autofill
-      const prepared = await client.autofill(tx);
-
-      // Assinar
-      const signed = issuer.sign(prepared);
-
-      // Submeter e aguardar validação
-      const rs = new ReliableSubmission(this.network);
-      const out = await rs.submitAndWait(signed.tx_blob);
-
-      // Extrai MPTokenIssuanceID do meta da transação
-      const issuanceIdHex = (out.result.meta as any)?.MPTokenIssuanceID || 
-                            (out.result.meta as any)?.AffectedNodes?.[0]?.CreatedNode?.NewFields?.MPTokenIssuanceID;
-
-      return {
-        txHash: out.result.tx_json?.hash || undefined,
-        meta: out.result.meta,
-        issuanceIdHex: issuanceIdHex ? String(issuanceIdHex) : undefined,
-      };
-    } finally {
-      // Não desconecta o client do pool
-    }
+    return {
+      txHash: result.txHash,
+      meta: result.result.meta,
+      issuanceIdHex: result.mptokenIssuanceID,
+    };
   }
 
   async authorize(dto: AuthorizeMPTDto, holderSeed?: string) {
@@ -108,15 +74,15 @@ export class MptService {
 
       // Se tiver seed, assina no backend
       if (holderSeed) {
-        const holder = xrpl.Wallet.fromSeed(holderSeed);
-        const signed = holder.sign(prepared);
-        const rs = new ReliableSubmission(this.network);
-        const out = await rs.submitAndWait(signed.tx_blob);
+        const txHash = await authorizeMPTHolder({
+          holderAddress: dto.holderAddress,
+          holderSeed: holderSeed,
+          mptokenIssuanceID: dto.issuanceIdHex,
+          authorize: !dto.unauthorize,
+          network: this.network
+        });
 
-        return {
-          txHash: out.result.tx_json?.hash,
-          meta: out.result.meta,
-        };
+        return { txHash };
       }
 
       // Caso contrário, retorna preparado para assinatura no frontend
@@ -150,31 +116,16 @@ export class MptService {
         throw new Error('Missing txBlob or sender seed');
       }
 
-      const sender = xrpl.Wallet.fromSeed(senderSeed);
-      const tx: any = {
-        TransactionType: 'Payment',
-        Account: sender.address,
-        Destination: dto.destination,
-        Amount: {
-          mpt_issuance_id: dto.mptIssuanceIdHex,
-          value: dto.amount,
-        },
-      };
+      const txHash = await sendMPT({
+        fromAddress: xrpl.Wallet.fromSeed(senderSeed).address,
+        fromSeed: senderSeed,
+        toAddress: dto.destination,
+        mptokenIssuanceID: dto.mptIssuanceIdHex,
+        amount: dto.amount,
+        network: this.network
+      });
 
-      // Autofill
-      const prepared = await client.autofill(tx);
-
-      // Assinar
-      const signed = sender.sign(prepared);
-
-      // Submeter
-      const rs = new ReliableSubmission(this.network);
-      const out = await rs.submitAndWait(signed.tx_blob);
-
-      return {
-        txHash: out.result.tx_json?.hash,
-        meta: out.result.meta,
-      };
+      return { txHash };
     } finally {
       // Não desconecta o client do pool
     }

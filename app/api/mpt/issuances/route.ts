@@ -90,9 +90,11 @@ export async function GET(request: NextRequest) {
         issuerWallet: issuance.issuerWallet,
         distributionWallet: issuance.distributionWallet,
         // URLs do explorer
+        // Nota: O XRPL Explorer ainda não tem página dedicada para MPTs
+        // Usamos a conta emissora ou a transação de emissão
         explorerUrls: {
-          mpt: issuance.xrplIssuanceId 
-            ? `${explorerBaseUrl}/mpt/${issuance.xrplIssuanceId}` 
+          mpt: issuance.issuerWallet?.address 
+            ? `${explorerBaseUrl}/accounts/${issuance.issuerWallet.address}` 
             : null,
           tx: issuance.issuanceTxHash 
             ? `${explorerBaseUrl}/transactions/${issuance.issuanceTxHash}` 
