@@ -30,6 +30,14 @@ interface InvestmentProject {
   _count?: {
     files?: number;
   };
+  xrplIssuanceId?: string;
+  mptokenIssuanceID?: string;
+  issuer?: string;
+  issuerWallet?: {
+    address: string;
+    [key: string]: any;
+  };
+  investmentType?: string;
 }
 
 interface InvestmentCardProps {
@@ -156,10 +164,10 @@ export function InvestmentCard({ project, onInvest, isMocked = false }: Investme
     >
       {/* Background gradient effect */}
       <div className={`absolute inset-0 bg-gradient-to-br ${colorClass} opacity-0 group-hover:opacity-5 transition-opacity duration-300`} />
-      
+
       <div className="relative">
         <div className="flex items-start gap-4 mb-5">
-          <motion.div 
+          <motion.div
             whileHover={{ rotate: 5, scale: 1.1 }}
             className={`p-4 bg-gradient-to-br ${colorClass} rounded-2xl shadow-lg`}
           >
@@ -344,136 +352,136 @@ export function InvestmentCard({ project, onInvest, isMocked = false }: Investme
               className="bg-white dark:bg-gray-900 rounded-3xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col backdrop-blur-xl border-2 border-gray-300 dark:border-gray-600"
               style={{ position: 'relative', zIndex: 10000 }}
             >
-            {/* Header - Melhorado */}
-            <div className={`relative bg-gradient-to-r ${colorClass} p-6`}>
-              <div className="absolute inset-0 bg-black/10" />
-              <div className="relative flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div className="p-3 bg-white/20 backdrop-blur-sm rounded-xl">
-                    <Icon className="w-8 h-8 text-white" />
-                  </div>
-                  <div>
-                    <h2 className="text-2xl font-bold text-white mb-1">
-                      {project.name}
-                    </h2>
-                    <p className="text-sm text-white/90">
-                      {project.purpose}
-                    </p>
-                  </div>
-                </div>
-                <motion.button
-                  whileHover={{ scale: 1.1, rotate: 90 }}
-                  whileTap={{ scale: 0.9 }}
-                  onClick={() => setShowDetails(false)}
-                  className="p-2 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-xl transition-colors"
-                >
-                  <X className="w-6 h-6 text-white" />
-                </motion.button>
-              </div>
-            </div>
-
-            {/* Content - Melhorado */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-6">
-              {project.description && (
-                <div className="bg-gray-50 dark:bg-gray-900/50 p-4 rounded-xl border border-gray-200 dark:border-gray-700">
-                  <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-2 uppercase tracking-wide">
-                    Descrição
-                  </h3>
-                  <p className="text-gray-700 dark:text-gray-200 leading-relaxed">
-                    {project.description}
-                  </p>
-                </div>
-              )}
-
-              {project.example && (
-                <div className="bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 p-4 rounded-xl border border-blue-100 dark:border-blue-800">
-                  <h3 className="text-sm font-semibold text-blue-600 dark:text-blue-400 mb-2 uppercase tracking-wide">
-                    Exemplo de Uso
-                  </h3>
-                  <p className="text-gray-700 dark:text-gray-200 font-medium">
-                    {project.example}
-                  </p>
-                </div>
-              )}
-
-              {/* Arquivos - Melhorado */}
-              <div>
-                <div className="flex items-center gap-2 mb-4">
-                  <FileText className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-                  <h3 className="text-lg font-bold text-gray-800 dark:text-white">
-                    Arquivos Disponíveis
-                  </h3>
-                  {files.length > 0 && (
-                    <span className="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-full text-xs font-semibold">
-                      {files.length}
-                    </span>
-                  )}
-                </div>
-                {loadingFiles ? (
-                  <div className="text-center py-12">
-                    <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-                    <p className="text-sm text-gray-500 dark:text-gray-400">Carregando arquivos...</p>
-                  </div>
-                ) : files.length === 0 ? (
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="text-center py-12 bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900/50 dark:to-gray-800/50 rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-700"
-                  >
-                    <div className="w-16 h-16 bg-gray-200 dark:bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4">
-                      <FileText className="w-8 h-8 text-gray-400 dark:text-gray-500" />
+              {/* Header - Melhorado */}
+              <div className={`relative bg-gradient-to-r ${colorClass} p-6`}>
+                <div className="absolute inset-0 bg-black/10" />
+                <div className="relative flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className="p-3 bg-white/20 backdrop-blur-sm rounded-xl">
+                      <Icon className="w-8 h-8 text-white" />
                     </div>
-                    <p className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-1">
-                      Nenhum arquivo disponível
+                    <div>
+                      <h2 className="text-2xl font-bold text-white mb-1">
+                        {project.name}
+                      </h2>
+                      <p className="text-sm text-white/90">
+                        {project.purpose}
+                      </p>
+                    </div>
+                  </div>
+                  <motion.button
+                    whileHover={{ scale: 1.1, rotate: 90 }}
+                    whileTap={{ scale: 0.9 }}
+                    onClick={() => setShowDetails(false)}
+                    className="p-2 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-xl transition-colors"
+                  >
+                    <X className="w-6 h-6 text-white" />
+                  </motion.button>
+                </div>
+              </div>
+
+              {/* Content - Melhorado */}
+              <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                {project.description && (
+                  <div className="bg-gray-50 dark:bg-gray-900/50 p-4 rounded-xl border border-gray-200 dark:border-gray-700">
+                    <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-2 uppercase tracking-wide">
+                      Descrição
+                    </h3>
+                    <p className="text-gray-700 dark:text-gray-200 leading-relaxed">
+                      {project.description}
                     </p>
-                    <p className="text-xs text-gray-500 dark:text-gray-500">
-                      Os documentos serão adicionados em breve
-                    </p>
-                  </motion.div>
-                ) : (
-                  <div className="grid grid-cols-1 gap-3">
-                    {files.map((file, index) => (
-                      <motion.div
-                        key={file.id}
-                        initial={{ opacity: 0, x: -20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: index * 0.05 }}
-                        whileHover={{ scale: 1.02, x: 4 }}
-                        className="flex items-center justify-between p-4 bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-900/50 dark:to-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 transition-all duration-200"
-                      >
-                        <div className="flex items-center gap-4 flex-1 min-w-0">
-                          <div className="text-3xl flex-shrink-0">{getFileIcon(file.fileType)}</div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-bold text-gray-800 dark:text-white break-words mb-1">
-                              {file.fileName}
-                            </p>
-                            {file.description && (
-                              <p className="text-xs text-gray-600 dark:text-gray-400 break-words mb-1">
-                                {file.description}
-                              </p>
-                            )}
-                            <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-500">
-                              <span>{formatFileSize(file.fileSize)}</span>
-                              <span>•</span>
-                              <span>{new Date(file.createdAt).toLocaleDateString('pt-BR')}</span>
-                            </div>
-                          </div>
-                        </div>
-                        <motion.button
-                          whileHover={{ scale: 1.1 }}
-                          whileTap={{ scale: 0.9 }}
-                          onClick={() => handleDownload(file.id, file.fileName)}
-                          className="ml-4 p-3 bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl flex-shrink-0"
-                          title="Baixar arquivo"
-                        >
-                          <Download className="w-5 h-5" />
-                        </motion.button>
-                      </motion.div>
-                    ))}
                   </div>
                 )}
+
+                {project.example && (
+                  <div className="bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 p-4 rounded-xl border border-blue-100 dark:border-blue-800">
+                    <h3 className="text-sm font-semibold text-blue-600 dark:text-blue-400 mb-2 uppercase tracking-wide">
+                      Exemplo de Uso
+                    </h3>
+                    <p className="text-gray-700 dark:text-gray-200 font-medium">
+                      {project.example}
+                    </p>
+                  </div>
+                )}
+
+                {/* Arquivos - Melhorado */}
+                <div>
+                  <div className="flex items-center gap-2 mb-4">
+                    <FileText className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+                    <h3 className="text-lg font-bold text-gray-800 dark:text-white">
+                      Arquivos Disponíveis
+                    </h3>
+                    {files.length > 0 && (
+                      <span className="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-full text-xs font-semibold">
+                        {files.length}
+                      </span>
+                    )}
+                  </div>
+                  {loadingFiles ? (
+                    <div className="text-center py-12">
+                      <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+                      <p className="text-sm text-gray-500 dark:text-gray-400">Carregando arquivos...</p>
+                    </div>
+                  ) : files.length === 0 ? (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="text-center py-12 bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900/50 dark:to-gray-800/50 rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-700"
+                    >
+                      <div className="w-16 h-16 bg-gray-200 dark:bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <FileText className="w-8 h-8 text-gray-400 dark:text-gray-500" />
+                      </div>
+                      <p className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-1">
+                        Nenhum arquivo disponível
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-gray-500">
+                        Os documentos serão adicionados em breve
+                      </p>
+                    </motion.div>
+                  ) : (
+                    <div className="grid grid-cols-1 gap-3">
+                      {files.map((file, index) => (
+                        <motion.div
+                          key={file.id}
+                          initial={{ opacity: 0, x: -20 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ delay: index * 0.05 }}
+                          whileHover={{ scale: 1.02, x: 4 }}
+                          className="flex items-center justify-between p-4 bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-900/50 dark:to-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600 transition-all duration-200"
+                        >
+                          <div className="flex items-center gap-4 flex-1 min-w-0">
+                            <div className="text-3xl flex-shrink-0">{getFileIcon(file.fileType)}</div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-bold text-gray-800 dark:text-white break-words mb-1">
+                                {file.fileName}
+                              </p>
+                              {file.description && (
+                                <p className="text-xs text-gray-600 dark:text-gray-400 break-words mb-1">
+                                  {file.description}
+                                </p>
+                              )}
+                              <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-500">
+                                <span>{formatFileSize(file.fileSize)}</span>
+                                <span>•</span>
+                                <span>{new Date(file.createdAt).toLocaleDateString('pt-BR')}</span>
+                              </div>
+                            </div>
+                          </div>
+                          <motion.button
+                            whileHover={{ scale: 1.1 }}
+                            whileTap={{ scale: 0.9 }}
+                            onClick={() => handleDownload(file.id, file.fileName)}
+                            className="ml-4 p-3 bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl flex-shrink-0"
+                            title="Baixar arquivo"
+                          >
+                            <Download className="w-5 h-5" />
+                          </motion.button>
+                        </motion.div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
             </motion.div>
           </motion.div>
         </AnimatePresence>,

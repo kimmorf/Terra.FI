@@ -188,14 +188,64 @@ export async function POST(request: NextRequest) {
             network,
         });
 
-        console.log('[API MPT Mint] Mint concluído! Hash:', txHash);
+        // Registrar a transação no banco de dados para o portfólio do usuário
+        if (prisma) {
+            try {
+                // Tentar encontrar o usuário pelo holderAddress
+                let user = await prisma.user.findUnique({
+                    where: { walletAddress: holderAddress }
+                });
+
+                // Se não existe, podemos criar um "shadow user" para rastrear o portfólio
+                if (!user) {
+                    user = await prisma.user.create({
+                        data: {
+                            name: `Holder ${holderAddress.slice(0, 8)}`,
+                            walletAddress: holderAddress,
+                            email: null,
+                        }
+                    });
+                }
+
+                // Tentar encontrar se este MPT pertence a um projeto (opcional)
+                const mptIssuance = await prisma.mPTIssuance.findFirst({
+                    where: { xrplIssuanceId: mptokenIssuanceID }
+                });
+
+                // Criar registro de compra
+                await prisma.purchase.create({
+                    data: {
+                        purchaseId: `mint_${txHash.slice(0, 16)}`,
+                        userId: user.id,
+                        projectId: null, // Pode ser expandido se houver mapeamento MPT <-> Project
+                        amount: parseFloat(amount),
+                        currency: 'MPT',
+                        mptCurrency: mptokenIssuanceID,
+                        mptAmount: amount,
+                        mptIssuer: issuerAddress,
+                        mptTxHash: txHash,
+                        status: 'COMPLETED',
+                        metadata: {
+                            network,
+                            memo,
+                            issuanceId: mptokenIssuanceID,
+                            type: 'direct_mint'
+                        }
+                    }
+                });
+                console.log(`[API MPT Mint] Registro de compra criado para o usuário ${user.id}`);
+            } catch (dbError: any) {
+                console.error('[API MPT Mint] Erro ao registrar compra no banco:', dbError.message);
+                // Não falha a requisição principal se o log falhar, mas avisamos no console
+            }
+        }
 
         return NextResponse.json({
             success: true,
             txHash,
             issuer: issuerAddress,
             holder: holderAddress,
-            amount,
+            amount: amount,
             mptokenIssuanceID,
             network,
         });

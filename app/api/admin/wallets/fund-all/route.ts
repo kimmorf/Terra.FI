@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPrismaClient } from '@/lib/prisma';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * API Route para fundar TODAS as carteiras de serviço via faucet
  * POST /api/admin/wallets/fund-all
@@ -64,7 +66,7 @@ export async function POST(request: NextRequest) {
     // Fundar cada carteira com delay para não sobrecarregar o faucet
     for (const wallet of wallets) {
       const faucetUrl = faucetUrls[wallet.network];
-      
+
       if (!faucetUrl) {
         results.push({
           id: wallet.id,
@@ -78,7 +80,7 @@ export async function POST(request: NextRequest) {
 
       try {
         console.log(`[FundAll] Fundando ${wallet.address} na ${wallet.network}...`);
-        
+
         const response = await fetch(faucetUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

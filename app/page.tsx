@@ -32,6 +32,11 @@ import {
   Layers,
   RefreshCw,
   Send,
+  History,
+  Briefcase,
+  Clock,
+  LayoutGrid,
+  ArrowUpRight
 } from 'lucide-react';
 import Link from 'next/link';
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -130,6 +135,8 @@ export default function Home() {
   const [issuanceError, setIssuanceError] = useState<string | null>(null);
   const [investmentProjects, setInvestmentProjects] = useState<any[]>([]);
   const [loadingInvestments, setLoadingInvestments] = useState(false);
+  const [portfolioItems, setPortfolioItems] = useState<any[]>([]);
+  const [loadingPortfolio, setLoadingPortfolio] = useState(false);
   const [adminInvestments, setAdminInvestments] = useState<any[]>([]);
   const [loadingAdminInvestments, setLoadingAdminInvestments] = useState(false);
   const [adminTab, setAdminTab] = useState<'projects' | 'investments' | 'mpts'>('projects');
@@ -480,39 +487,43 @@ export default function Home() {
   }, [selectedRole, adminTab, fetchAdminProjects, fetchAdminInvestments, fetchMptIssuances]);
 
   const fetchInvestmentProjects = useCallback(async () => {
-    if (!session) {
-      setInvestmentProjects([]);
-      setLoadingInvestments(false);
-      return;
-    }
     try {
       setLoadingInvestments(true);
-      const response = await fetch('/api/investments', {
-        credentials: 'include',
-      });
-
+      const response = await fetch('/api/investments');
       if (response.ok) {
         const data = await response.json();
         setInvestmentProjects(Array.isArray(data) ? data : []);
-      } else {
-        setInvestmentProjects([]);
       }
     } catch (error) {
-      console.error('Erro ao buscar projetos de investimento:', error);
-      setInvestmentProjects([]);
+      console.error('Erro ao buscar projetos:', error);
     } finally {
       setLoadingInvestments(false);
     }
-  }, [session]);
+  }, []);
+
+  const fetchPortfolio = useCallback(async () => {
+    if (!effectiveAddress && !session) return;
+
+    try {
+      setLoadingPortfolio(true);
+      const walletParam = effectiveAddress ? `?walletAddress=${effectiveAddress}` : '';
+      const response = await fetch(`/api/investor/portfolio${walletParam}`);
+      if (response.ok) {
+        const data = await response.json();
+        setPortfolioItems(data.portfolio || []);
+      }
+    } catch (error) {
+      console.error('Erro ao buscar portfólio:', error);
+    } finally {
+      setLoadingPortfolio(false);
+    }
+  }, [effectiveAddress, session]);
 
   useEffect(() => {
-    if (!isSessionPending && session && investorTab === 'investments') {
-      fetchInvestmentProjects();
-    } else if (!isSessionPending && !session && investorTab === 'investments') {
-      setInvestmentProjects([]);
-      setLoadingInvestments(false);
+    if (investorTab === 'investments') {
+      fetchPortfolio();
     }
-  }, [isSessionPending, session, investorTab, fetchInvestmentProjects]);
+  }, [investorTab, fetchPortfolio]);
 
   // Ajusta a aba padrão baseado na disponibilidade
   useEffect(() => {
@@ -753,22 +764,29 @@ export default function Home() {
       let response;
 
       // Verifica se é um MPT para chamar a rota de mint
-      const isMPT = Boolean((project as any).mptokenIssuanceID || (project as any).tokenType);
+      const mptId = (project as any).xrplIssuanceId || (project as any).mptokenIssuanceID || (project as any).issuanceIdHex;
+      const isMPT = Boolean(mptId || (project as any).tokenType || (project as any).investmentType === 'mpt_direct');
 
       if (isMPT) {
         console.log('[Investimento] Detectado Token MPT. Iniciando Mint...');
-        // Calcular quantidade de tokens (Mock: R$ 10,00 por token)
-        const tokenPrice = 10;
-        const tokensToMint = Math.floor(amount / tokenPrice);
+        // Calcular quantidade de tokens (Mock: R$ 1,00 por token)
+        const tokenPrice = 1;
+        const tokensToMint = Math.max(1, Math.floor(amount / tokenPrice));
+
+        // O ID da emissão pode estar no campo 'xrplIssuanceId', 'mptokenIssuanceID' ou no 'id' (se o 'id' for o hex)
+        const finalMPTId = mptId || project.id;
+
+        // O endereço do emissor pode estar em project.issuerWallet.address ou project.issuer
+        const issuerAddress = (project as any).issuerWallet?.address || (project as any).issuer;
 
         response = await fetch('/api/mpt/mint', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             holderAddress: effectiveAddress,
-            mptokenIssuanceID: project.mptokenIssuanceID || project.id, // ID deve ser o ID da emissão
+            mptokenIssuanceID: finalMPTId,
             amount: tokensToMint.toString(),
-            issuerAddress: (project as any).issuer, // Tenta pegar do objeto
+            issuerAddress: issuerAddress,
             network: effectiveNetwork
           }),
         });
@@ -805,7 +823,7 @@ export default function Home() {
       alert(error.message || 'Erro ao realizar investimento');
       throw error;
     }
-  }, [isWalletConnected, effectiveAddress, effectiveNetwork, serviceWallet, isConnected, account, xrpBalance, availableTokens, investmentProjects, fetchInvestmentProjects, requestFaucet, loadAccountData]);
+  }, [isWalletConnected, effectiveAddress, effectiveNetwork, serviceWallet, isConnected, account, xrpBalance, availableTokens, investmentProjects, mptIssuances, fetchInvestmentProjects, fetchPortfolio, requestFaucet, loadAccountData]);
 
   // Nota: O carregamento de dados agora é tratado pelo useEffect consolidado
   // que detecta mudanças em effectiveAddress e effectiveNetwork (linhas ~265-280)
@@ -1383,61 +1401,112 @@ export default function Home() {
 
                   {/* Conteúdo da aba Investimentos */}
                   {investorTab === 'investments' && (
-                    <div>
-                      {isSessionPending ? (
-                        <div className="flex justify-center py-12">
+                    <div className="space-y-6">
+                      {loadingPortfolio ? (
+                        <div className="flex justify-center py-20">
                           <div className="text-center">
-                            <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-                            <p className="text-gray-600 dark:text-gray-300">Verificando autenticação...</p>
+                            <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+                            <p className="text-gray-600 dark:text-gray-300 font-medium animate-pulse">
+                              Consolidando seu portfólio...
+                            </p>
                           </div>
                         </div>
-                      ) : !session ? (
-                        <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-xl p-8 text-center">
-                          <Info className="w-12 h-12 text-blue-500 dark:text-blue-400 mx-auto mb-4" />
-                          <p className="text-blue-700 dark:text-blue-300 text-lg mb-4">
-                            Você precisa estar logado para ver os projetos de investimento.
-                          </p>
-                          <Link
-                            href="/auth/signin"
-                            className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold transition-all duration-300"
-                          >
-                            Fazer Login
-                            <ArrowRight className="w-5 h-5" />
-                          </Link>
-                        </div>
-                      ) : loadingInvestments ? (
-                        <div className="flex justify-center py-12">
-                          <div className="text-center">
-                            <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-                            <p className="text-gray-600 dark:text-gray-300">Carregando projetos de investimento...</p>
-                          </div>
-                        </div>
-                      ) : investmentProjects.length === 0 ? (
+                      ) : portfolioItems.length === 0 ? (
                         <motion.div
                           initial={{ opacity: 0, scale: 0.95 }}
                           animate={{ opacity: 1, scale: 1 }}
                           className="bg-white dark:bg-gray-800/90 rounded-3xl shadow-xl p-12 text-center border border-gray-200 dark:border-gray-700 backdrop-blur-sm"
                         >
                           <div className="w-20 h-20 bg-gradient-to-br from-blue-100 to-purple-100 dark:from-blue-900/30 dark:to-purple-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
-                            <TrendingUp className="w-10 h-10 text-blue-500 dark:text-blue-400" />
+                            <Briefcase className="w-10 h-10 text-blue-500 dark:text-blue-400" />
                           </div>
-                          <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-2">
-                            Nenhum projeto de investimento
+                          <h3 className="text-2xl font-bold text-gray-800 dark:text-white mb-2">
+                            Seu Portfólio está vazio
                           </h3>
-                          <p className="text-gray-600 dark:text-gray-300">
-                            Você ainda não possui investimentos registrados.
+                          <p className="text-gray-600 dark:text-gray-300 mb-6 max-w-md mx-auto">
+                            Você ainda não realizou nenhum investimento. Explore os ativos disponíveis e comece a construir seu patrimônio RWA.
                           </p>
+                          <button
+                            onClick={() => setInvestorTab('available-tokens')}
+                            className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl font-semibold hover:shadow-lg transition-all"
+                          >
+                            Ver Projetos Disponíveis
+                            <ArrowRight className="w-5 h-5" />
+                          </button>
                         </motion.div>
                       ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                          {investmentProjects.map((project) => (
-                            <InvestmentCard
-                              key={project.id}
-                              project={project}
-                              onInvest={handleInvest}
-                              isMocked={isInvestmentMocked()}
-                            />
-                          ))}
+                          {portfolioItems.map((item, index) => {
+                            const ItemIcon = item.type === 'MPT' ? Coins : (typeIcons[item.category as keyof typeof typeIcons] || Briefcase);
+                            const itemColor = typeColors[item.category as keyof typeof typeColors] || 'from-blue-400 to-blue-600';
+
+                            return (
+                              <motion.div
+                                key={item.id}
+                                initial={{ opacity: 0, x: -20 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                transition={{ delay: index * 0.1 }}
+                                className="group relative bg-white dark:bg-gray-800/90 rounded-3xl p-6 border border-gray-200 dark:border-gray-700 shadow-lg hover:shadow-2xl transition-all duration-300 overflow-hidden"
+                              >
+                                <div className={`absolute inset-0 bg-gradient-to-br ${itemColor} opacity-0 group-hover:opacity-5 transition-opacity duration-300`} />
+
+                                <div className="flex items-start justify-between mb-4">
+                                  <div className="flex items-center gap-4">
+                                    <div className={`p-3 bg-gradient-to-br ${itemColor} rounded-xl shadow-lg`}>
+                                      <ItemIcon className="w-6 h-6 text-white" />
+                                    </div>
+                                    <div>
+                                      <div className="flex items-center gap-2">
+                                        <h4 className="font-bold text-lg text-gray-800 dark:text-white truncate max-w-[150px]">
+                                          {item.name}
+                                        </h4>
+                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${item.type === 'MPT' ? 'bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400' : 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400'
+                                          }`}>
+                                          {item.type}
+                                        </span>
+                                      </div>
+                                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                                        {new Date(item.date).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <div className="text-right">
+                                    <p className="font-bold text-gray-800 dark:text-white">
+                                      {item.type === 'MPT' ? `${parseFloat(item.tokenAmount).toLocaleString('pt-BR')} tokens` : `R$ ${item.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
+                                    </p>
+                                    <p className="text-[10px] text-gray-500 font-medium uppercase tracking-wider">
+                                      Valor Investido
+                                    </p>
+                                  </div>
+                                </div>
+
+                                <div className="space-y-3">
+                                  <div className="flex items-center justify-between p-2 rounded-xl bg-gray-50 dark:bg-gray-900/50 border border-gray-100 dark:border-gray-800">
+                                    <div className="flex items-center gap-2">
+                                      <Clock className="w-3 h-3 text-gray-400" />
+                                      <span className="text-xs text-gray-500 dark:text-gray-400">Status</span>
+                                    </div>
+                                    <span className="text-xs font-bold text-green-500 uppercase">{item.status}</span>
+                                  </div>
+
+                                  {item.txHash && (
+                                    <a
+                                      href={`https://${effectiveNetwork === 'mainnet' ? 'xrpscan.com' : effectiveNetwork === 'devnet' ? 'devnet.xrpscan.com' : 'testnet.xrpscan.com'}/tx/${item.txHash}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="flex items-center justify-between p-2 rounded-xl bg-blue-50/50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900/30 group/link transition-all"
+                                    >
+                                      <div className="flex items-center gap-2">
+                                        <Shield className="w-3 h-3 text-blue-500" />
+                                        <span className="text-xs text-blue-600 dark:text-blue-400">Comprovante On-Chain</span>
+                                      </div>
+                                      <ArrowUpRight className="w-3 h-3 text-blue-500 group-hover/link:translate-x-0.5 group-hover/link:-translate-y-0.5 transition-transform" />
+                                    </a>
+                                  )}
+                                </div>
+                              </motion.div>
+                            );
+                          })}
                         </div>
                       )}
                     </div>
@@ -1603,8 +1672,10 @@ export default function Home() {
                                     // Mock de arrecadação (0 por enquanto)
                                     totalAmount: 0,
                                     status: 'published',
-                                    // Adiciona ID original para logica de investimento
-                                    // investmentType: 'mpt_direct'
+                                    // Propriedades extras para identificação no handleInvest
+                                    xrplIssuanceId: mpt.xrplIssuanceId,
+                                    issuerWallet: mpt.issuerWallet,
+                                    investmentType: 'mpt_direct'
                                   }}
                                   onInvest={handleInvest}
                                   isMocked={isInvestmentMocked()}

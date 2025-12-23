@@ -444,6 +444,11 @@ export async function authorizeMPTHolder(params: AuthorizeMPTHolderParams): Prom
     throw new Error('holderSeed não corresponde ao holderAddress');
   }
 
+  // Tentar ativar a conta se necessário (faucet)
+  if (network === 'testnet' || network === 'devnet') {
+    await trySendFaucet(holderAddress, network);
+  }
+
   // Obter client
   const client = await xrplPool.getClient(network);
 
@@ -807,6 +812,11 @@ export async function isHolderAuthorized(
     // Resolver ID
     const cleanedID = await resolveMPTID(mptokenIssuanceID, network);
 
+    // Tentar ativar a conta se necessário (faucet)
+    if (network === 'testnet' || network === 'devnet') {
+      await trySendFaucet(holderAddress, network);
+    }
+
     // Buscar objetos da conta holder (MPTokens são LedgerEntryType 'MPToken')
     const response = await client.request({
       command: 'account_objects',
@@ -839,6 +849,11 @@ export async function getMPTBalance(
 
     // Resolver ID
     const cleanedID = await resolveMPTID(mptokenIssuanceID, network);
+
+    // Tentar ativar a conta se necessário (faucet)
+    if (network === 'testnet' || network === 'devnet') {
+      await trySendFaucet(holderAddress, network);
+    }
 
     const response = await client.request({
       command: 'account_objects',
